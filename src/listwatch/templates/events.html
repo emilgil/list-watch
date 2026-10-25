@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Händelser{% endblock %}
+{% block content %}
+{% if run %}
+<h1>Runda {{ run.id }}: {{ run.list_namn or "–" }}</h1>
+<p class="muted small">
+  Omgång {{ run.omgang }} ({{ run.typ }}), {{ run.start | lokal_tid }}.
+  {{ run.lasta }} lästa, {{ run.prisandrade }} prisändrade, {{ run.produktsidor }} produktsidor, {{ run.larm_skickade }} larm, {{ run.fel }} fel.
+  <span class="{{ run.resultat }}">{{ (run.resultat or "pågår") | upper }}</span>
+  · <a href="/logg">Alla rundor</a>
+</p>
+{% elif product %}
+<h1>Händelser: <a href="/produkt/{{ product.asin }}">{{ product.titel or product.asin }}</a></h1>
+{% else %}
+<h1>Händelser{% if typ %}: {{ typ | replace("_", " ") }}{% endif %}</h1>
+<p class="small"><a href="/logg">Alla rundor</a></p>
+{% endif %}
+
+<form class="inline" method="get" style="margin-bottom:1rem">
+  {% if asin %}<input type="hidden" name="asin" value="{{ asin }}">{% endif %}
+  <select name="typ" onchange="this.form.submit()" aria-label="Händelsetyp">
+    <option value="">Alla typer</option>
+    {% for t in types %}<option value="{{ t }}" {{ "selected" if typ == t }}>{{ t | replace("_", " ") }}</option>{% endfor %}
+  </select>
+  <noscript><button>Filtrera</button></noscript>
+  <span class="muted small">{{ events | length }} händelser</span>
+</form>
+
+{% if events %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tid</th><th>Typ</th><th>Produkt</th><th>Före → efter</th><th>Text</th>{% if not run %}<th>Runda</th>{% endif %}</tr></thead>
+  <tbody>
+  {% for e in events %}
+    <tr>
+      <td>{{ e.tid | lokal_tid }}</td>
+      <td class="{{ 'fel' if e.typ in ('http_fel', 'parsningsfel', 'captcha', 'larm_misslyckades') else 'ok' if e.typ == 'larm_skickat' }}">{{ e.typ | replace("_", " ") }}</td>
+      <td class="wrap">{% if e.asin %}<a href="/produkt/{{ e.asin }}">{{ (e.titel or e.asin) | truncate(50) }}</a>{% endif %}</td>
+      <td>{% if e.fore is not none or e.efter is not none %}{{ e.fore | handelse(e.typ) }}{% if e.efter is not none %} → {{ e.efter | handelse(e.typ) }}{% endif %}{% endif %}</td>
+      <td class="wrap small">{{ e.text or "" }}</td>
+      {% if not run %}<td>{% if e.run_id %}<a href="/logg/{{ e.run_id }}">{{ e.run_id }}</a>{% endif %}</td>{% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="card muted">Inga händelser.</p>
+{% endif %}
+{% endblock %}

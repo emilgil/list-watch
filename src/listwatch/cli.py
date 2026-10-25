@@ -1,15 +1,15 @@
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
-from . import scheduler
+from . import lists, scheduler
 from .amazon import list_id_from_url
-from .db import backup, connect, latest_version, migrate, schema_version, utc_iso
+from .db import backup, connect, latest_version, migrate, schema_version
 from .fetcher import make_fetcher
+from .lists import is_amazon_se
 from .parser import BASE_URL
 from .probe import render_report, run_probe
 
@@ -22,7 +22,7 @@ LOG_LEVEL = os.environ.get("LISTWATCH_LOG_LEVEL", "INFO").upper()
 
 
 def _probe(args: argparse.Namespace) -> int:
-    if not _is_amazon_se(args.url):
+    if not is_amazon_se(args.url):
         print("Fel: probe stöder bara amazon.se-länkar", file=sys.stderr)
         return 2
     report = run_probe(args.url, make_fetcher(), out_dir=Path(args.out))
@@ -46,10 +46,6 @@ def _migrate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _is_amazon_se(url: str) -> bool:
-    return (urlparse(url).hostname or "") in ("amazon.se", "www.amazon.se")
-
-
 def _needs_migrate(conn) -> bool:
     if schema_version(conn) < latest_version():
         print("Fel: databasen är inte uppgraderad, kör listwatch migrate först", file=sys.stderr)
@@ -58,8 +54,7 @@ def _needs_migrate(conn) -> bool:
 
 
 def _add_list(args: argparse.Namespace) -> int:
-    list_id = list_id_from_url(args.url)
-    if not _is_amazon_se(args.url) or not list_id:
+    if not is_amazon_se(args.url) or not list_id_from_url(args.url):
         print("Fel: ange en delad önskelista på amazon.se (…/hz/wishlist/ls/<id>)", file=sys.stderr)
         return 2
     if args.procent is not None and not 1 <= args.procent <= 99:
@@ -69,20 +64,13 @@ def _add_list(args: argparse.Namespace) -> int:
     try:
         if _needs_migrate(conn):
             return 2
-        if conn.execute("SELECT 1 FROM wishlist WHERE list_id = ?", (list_id,)).fetchone():
-            print(f"Fel: listan {list_id} finns redan", file=sys.stderr)
-            return 1
-        conn.execute(
-            """INSERT INTO wishlist (typ, namn, url, list_id, standard_procent, standard_aktiv, skapad)
-               VALUES ('amazon', ?, ?, ?, ?, ?, ?)""",
-            (
-                args.namn or list_id, f"{BASE_URL}/hz/wishlist/ls/{list_id}", list_id,
-                args.procent, int(args.procent is not None), utc_iso(datetime.now(timezone.utc)),
-            ),
-        )
+        wl = lists.find_list(conn, lists.add_amazon_list(conn, args.url, args.namn, args.procent))
+    except lists.ListError as e:
+        print(f"Fel: {e}", file=sys.stderr)
+        return 1
     finally:
         conn.close()
-    print(f"Lista tillagd: {args.namn or list_id} ({list_id})")
+    print(f"Lista tillagd: {wl['namn']} ({wl['list_id']})")
     if args.procent is not None:
         print(f"Larm vid {args.procent} % under referenspriset")
     else:
@@ -127,23 +115,10 @@ def _remove_list(args: argparse.Namespace) -> int:
     try:
         if _needs_migrate(conn):
             return 2
-        wl = conn.execute(
-            "SELECT id, namn, list_id FROM wishlist WHERE list_id = ? OR CAST(id AS TEXT) = ?", (args.lista, args.lista)
-        ).fetchone()
-        if wl is None:
-            print(f"Fel: ingen lista med id eller list-id {args.lista} (se listwatch lists)", file=sys.stderr)
-            return 1
-        conn.execute("BEGIN")
-        try:
-            conn.execute("DELETE FROM wishlist WHERE id = ?", (wl["id"],))  # wishlist_product cascades
-            inactive = conn.execute(
-                """UPDATE product SET aktiv = 0 WHERE aktiv = 1 AND NOT EXISTS (
-                       SELECT 1 FROM wishlist_product wp WHERE wp.asin = product.asin AND wp.borttagen IS NULL)"""
-            ).rowcount
-            conn.execute("COMMIT")
-        except BaseException:
-            conn.execute("ROLLBACK")
-            raise
+        wl, inactive = lists.remove_list(conn, args.lista)
+    except lists.ListError as e:
+        print(f"Fel: {e} (se listwatch lists)", file=sys.stderr)
+        return 1
     finally:
         conn.close()
     print(f"Lista borttagen: {wl['namn']} ({wl['list_id'] or 'lokal'})")

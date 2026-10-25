@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Inställningar{% endblock %}
+{% block content %}
+<h1>Inställningar</h1>
+
+<form class="card" method="post" action="/installningar">
+  <label for="apprise_urls" style="margin-top:0">Apprise-URL:er</label>
+  <textarea id="apprise_urls" name="apprise_urls" placeholder="ntfy://mitt-ämne&#10;tgram://bottoken/chatid">{{ s.apprise_urls }}</textarea>
+  <p class="hint">En per rad. Larm, driftnotiser och testnotiser går till alla.
+    Format: <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">Apprise-wikin</a>.</p>
+  <p><button type="button" hx-post="/installningar/testnotis" hx-target="#testnotis">Skicka testnotis</button>
+    <span id="testnotis" class="small"></span></p>
+  <p class="hint">Testnotisen använder de sparade URL:erna; spara först om du ändrat dem.</p>
+
+  <div class="grid2">
+    <div>
+      <label for="intervall_timmar">Intervall (timmar)</label>
+      <input id="intervall_timmar" type="number" name="intervall_timmar" min="1" required value="{{ s.intervall_timmar }}">
+      <p class="hint">Standard 6, lägst 1. Gäller nu: var {{ current_interval }}:e timme.</p>
+    </div>
+    <div>
+      <label for="fordrojning_minuter">Slumpad fördröjning (minuter)</label>
+      <input id="fordrojning_minuter" type="number" name="fordrojning_minuter" min="0" max="180" required value="{{ s.fordrojning_minuter }}">
+      <p class="hint">0 till så här många minuter läggs på varje start.</p>
+    </div>
+    <div>
+      <label for="kampanj_intervall_timmar">Kampanjintervall (timmar)</label>
+      <input id="kampanj_intervall_timmar" type="number" name="kampanj_intervall_timmar" min="0" value="{{ s.kampanj_intervall_timmar }}">
+      <p class="hint">Tätare insamling till slutdatumet, t.ex. under Black Week. 0 = av.</p>
+    </div>
+    <div>
+      <label for="kampanj_slut">Kampanjen slutar</label>
+      <input id="kampanj_slut" type="datetime-local" name="kampanj_slut" value="{{ s.kampanj_slut }}">
+    </div>
+    <div>
+      <label for="logg_lagringstid_dagar">Logg sparas (dagar)</label>
+      <input id="logg_lagringstid_dagar" type="number" name="logg_lagringstid_dagar" min="1" required value="{{ s.logg_lagringstid_dagar }}">
+      <p class="hint">Rundor och händelser. Prishistoriken rensas aldrig.</p>
+    </div>
+    <div>
+      <label for="notislogg_lagringstid_dagar">Notislogg sparas (dagar)</label>
+      <input id="notislogg_lagringstid_dagar" type="number" name="notislogg_lagringstid_dagar" min="1" required value="{{ s.notislogg_lagringstid_dagar }}">
+    </div>
+  </div>
+  <p><button class="primary">Spara</button></p>
+</form>
+
+<h2>Driftstatus</h2>
+<div class="card small">
+  <div>Schemaläggare: {% if scheduler_running %}<span class="ok">kör</span>{% else %}<span class="fel">kör inte</span>{% endif %}</div>
+  <div>Nästa omgång: {{ status.next_run }}</div>
+  <div>Senaste omgång: {% if status.last %}{{ status.last.omgang }}, {{ status.last.slut | lokal_tid }}
+    <span class="{{ status.last.resultat }}">{{ (status.last.resultat or "pågår") | upper }}</span>{% else %}ingen än{% endif %}</div>
+  <div>Blockerade omgångar i rad: <span class="{{ 'fel' if status.blocked }}">{{ status.blocked }}</span></div>
+  <div>Databasschema: v{{ schema }}</div>
+</div>
+
+<h2>Notislogg</h2>
+{% if notices %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tid</th><th>Typ</th><th>Produkt</th><th>Text</th></tr></thead>
+  <tbody>
+  {% for e in notices %}
+    <tr>
+      <td>{{ e.tid | lokal_tid }}</td>
+      <td class="{{ 'fel' if e.typ == 'larm_misslyckades' or (e.text or '').startswith('misslyckades') else 'ok' }}">{{ e.typ | replace("_", " ") }}</td>
+      <td class="wrap">{% if e.asin %}<a href="/produkt/{{ e.asin }}">{{ (e.titel or e.asin) | truncate(40) }}</a>{% endif %}</td>
+      <td class="wrap small">{{ e.text or "" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="card muted">Inga notiser skickade än.</p>
+{% endif %}
+{% endblock %}

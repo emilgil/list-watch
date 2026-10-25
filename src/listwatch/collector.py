@@ -449,6 +449,8 @@ def _collect_local(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqli
         if page.status == STATUS_MISSING_PRICE:
             run.missing_price += 1
         omgang.seen.add(asin)
+        if page.title:
+            conn.execute("UPDATE product SET titel = ? WHERE asin = ? AND titel = ''", (page.title, asin))
         note = _measure(conn, run, asin, page.status, page.price_ore, "produktsida")
         title = conn.execute("SELECT titel FROM product WHERE asin = ?", (asin,)).fetchone()[0]
         omgang.say(_line(asin, page.status, page.price_ore, title, [note]))

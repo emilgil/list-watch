@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Listor{% endblock %}
+{% block content %}
+<h1>Listor</h1>
+
+<form class="card" method="post" action="/listor">
+  <label for="lank" style="margin-top:0">Lägg till</label>
+  <input id="lank" type="text" name="lank" required style="width:100%"
+         placeholder="Delningslänk till en önskelista, eller ASIN / produktlänk">
+  <div class="grid2">
+    <div>
+      <label for="namn">Namn <span class="muted small">(valfritt, bara listor)</span></label>
+      <input id="namn" type="text" name="namn" placeholder="Hämtas från Amazon">
+    </div>
+    <div>
+      <label for="procent">Standardlarm, % under referens <span class="muted small">(valfritt)</span></label>
+      <input id="procent" type="number" name="procent" min="1" max="99" placeholder="t.ex. 20">
+    </div>
+  </div>
+  <p class="hint">Listan måste vara delad (offentlig eller "delad med länk"). En enstaka produkt läses från sin produktsida varje omgång.</p>
+  <button class="primary">Lägg till</button>
+</form>
+
+<h2>Bevakade listor</h2>
+{% if lists %}
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th>Lista</th><th class="num">Produkter</th><th>Senast synkad</th><th>Status</th><th>Standardlarm</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for l in lists %}
+    <tr>
+      <td>
+        {% if l.typ == "amazon" %}<a href="/?lista={{ l.id }}">{{ l.namn }}</a>
+          <div class="muted small"><a href="{{ l.url }}" target="_blank" rel="noopener" class="muted">{{ l.list_id }}</a></div>
+        {% else %}<a href="/?lista={{ l.id }}">{{ l.namn }}</a><div class="muted small">enstaka produkter</div>{% endif %}
+      </td>
+      <td class="num">{{ l.produkter }}</td>
+      <td>{{ l.senast_synkad | lokal_tid }}
+        {% if l.senaste_resultat %}<div class="small {{ l.senaste_resultat }}">{{ l.senaste_resultat | upper }}</div>{% endif %}</td>
+      <td class="{{ l.status }}">{{ {"ok": "OK", "blockerad": "Blockerad", "privat": "Privat", "fel": "Fel"}[l.status] }}</td>
+      <td>
+        <form class="inline" method="post" action="/listor/{{ l.id }}/procent">
+          <input type="number" name="procent" min="1" max="99" aria-label="Procent under referens"
+                 value="{{ l.standard_procent if l.standard_aktiv and l.standard_procent }}" placeholder="av">
+          <span>%</span><button class="small">Spara</button>
+        </form>
+      </td>
+      <td>
+        <form class="inline" method="post" action="/listor/{{ l.id }}/ta-bort">
+          <details class="confirm"><summary><button type="button" class="small danger"
+              onclick="this.closest('details').open = true">Ta bort</button></summary>
+            <button class="small danger">Bekräfta borttagning</button></details>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="hint">Tomt procentfält = inget standardlarm. Ta bort behåller prishistoriken; lägger du till listan igen fortsätter historiken.</p>
+{% else %}
+<p class="card muted">Inga listor bevakas än.</p>
+{% endif %}
+
+{% if local %}
+<h2>Enstaka produkter</h2>
+<div class="table-wrap">
+<table><tbody>
+  {% for p in local %}
+  <tr><td class="wrap"><a href="/produkt/{{ p.asin }}">{{ p.titel or p.asin }}</a></td><td class="muted small">{{ p.asin }}</td></tr>
+  {% endfor %}
+</tbody></table>
+</div>
+{% endif %}
+{% endblock %}

@@ -3,25 +3,96 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}listwatch{% endblock %}</title>
+<title>{% block title %}listwatch{% endblock %} · listwatch</title>
+<script src="/static/htmx.min.js" defer></script>
 <style>
-  :root { --fg: #1d1d1f; --muted: #6e6e73; --bg: #fff; --line: #e5e5ea; --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
-  @media (prefers-color-scheme: dark) {
-    :root { --fg: #f2f2f7; --muted: #a1a1a6; --bg: #1c1c1e; --line: #38383a; --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+  :root {
+    --fg: #1d1d1f; --muted: #6e6e73; --bg: #f5f5f7; --card: #fff; --line: #e3e3e8; --accent: #0a66c2;
+    --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --good-bg: #e6f4ea; --bad-bg: #fdecea;
+    color-scheme: light;
   }
-  body { margin: 0; padding: 1.5rem 1rem; font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
-  main { max-width: 60rem; margin: 0 auto; }
-  h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #f2f2f7; --muted: #a1a1a6; --bg: #111113; --card: #1c1c1e; --line: #333336; --accent: #4c9aff;
+      --ok: #3fb950; --warn: #d29922; --bad: #f85149; --good-bg: #12301b; --bad-bg: #3a1614;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 0 1rem; }
+  header .bar { max-width: 64rem; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1.25rem; padding: .6rem 0; }
+  header .brand { font-weight: 650; color: var(--fg); margin-right: .5rem; }
+  header nav { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+  header nav a { color: var(--muted); padding: .2rem 0; }
+  header nav a.active { color: var(--fg); font-weight: 600; }
+  main { max-width: 64rem; margin: 0 auto; padding: 1rem 1rem 3rem; }
+  h1 { font-size: 1.35rem; margin: .25rem 0 1rem; }
+  h2 { font-size: 1.05rem; margin: 1.75rem 0 .6rem; }
   .muted { color: var(--muted); }
-  .table-wrap { overflow-x: auto; }
+  .small { font-size: .85rem; }
+  .status { font-size: .85rem; color: var(--muted); margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: .2rem 1rem; align-items: center; }
+  .flash { padding: .6rem .8rem; border-radius: 8px; margin-bottom: 1rem; }
+  .flash.ok { background: var(--good-bg); }
+  .flash.fel { background: var(--bad-bg); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+  .table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  th { font-weight: 600; font-size: .8rem; color: var(--muted); }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .ok { color: var(--ok); } .delvis { color: var(--warn); } .fel, .blockerad, .privat { color: var(--bad); }
+  td.wrap { white-space: normal; min-width: 14rem; }
+  .ok { color: var(--ok); } .delvis, .vantar { color: var(--warn); } .fel, .blockerad, .privat { color: var(--bad); }
+  .tag { display: inline-block; font-size: .75rem; padding: .05rem .45rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  form.inline { display: inline-flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin: 0; }
+  input[type=text], input[type=number], input[type=datetime-local], textarea, select {
+    font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .35rem .5rem; max-width: 100%;
+  }
+  input[type=number] { width: 5.5rem; }
+  textarea { width: 100%; min-height: 5rem; font-family: ui-monospace, monospace; font-size: .85rem; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 6px; padding: .35rem .75rem; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  label { display: block; margin: .6rem 0 .2rem; font-weight: 550; }
+  label.check { display: flex; gap: .5rem; align-items: center; font-weight: normal; }
+  .hint { font-size: .8rem; color: var(--muted); margin: .15rem 0 0; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+  details.confirm summary { list-style: none; cursor: pointer; display: inline-block; }
+  details.confirm summary::-webkit-details-marker { display: none; }
+  details.confirm[open] summary { display: none; }
+  code { font-size: .85em; }
 </style>
+{% block head %}{% endblock %}
 </head>
 <body>
+<header>
+  <div class="bar">
+    <a class="brand" href="/">listwatch</a>
+    <nav>
+      {% set here = request.url.path %}
+      <a href="/" class="{{ 'active' if here == '/' or here.startswith('/produkt') }}">Översikt</a>
+      <a href="/listor" class="{{ 'active' if here.startswith('/listor') }}">Listor</a>
+      <a href="/logg" class="{{ 'active' if here.startswith('/logg') }}">Logg</a>
+      <a href="/installningar" class="{{ 'active' if here.startswith('/installningar') }}">Inställningar</a>
+    </nav>
+  </div>
+</header>
 <main>
+<div class="status">
+  <span>Nästa omgång: {{ status.next_run }}</span>
+  {% if status.last %}<span>Senaste: {{ status.last.slut | lokal_tid }}
+    <span class="{{ status.last.resultat }}">{{ (status.last.resultat or "pågår") | upper }}</span></span>{% endif %}
+  {% if status.blocked %}<span class="fel">Blockerad {{ status.blocked }} omgång{{ "ar" if status.blocked > 1 }} i rad</span>{% endif %}
+  <span id="synka">
+    {% if status.syncing %}<span class="muted">Omgång pågår…</span>
+    {% else %}<button class="small" hx-post="/synka" hx-target="#synka" hx-swap="innerHTML">Synka nu</button>{% endif %}
+  </span>
+</div>
+{% if ok %}<div class="flash ok">{{ ok }}</div>{% endif %}
+{% if fel %}<div class="flash fel">{{ fel }}</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
 </body>

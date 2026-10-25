@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Översikt{% endblock %}
+{% block head %}
+<style>
+  .filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-bottom: 1rem; }
+  .products { display: grid; gap: .5rem; }
+  .product { display: grid; grid-template-columns: 56px 1fr auto; gap: .4rem .9rem; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .6rem .8rem; }
+  .product img, .product .noimg { width: 56px; height: 56px; object-fit: contain; border-radius: 6px; background: #fff; }
+  .product .noimg { border: 1px solid var(--line); }
+  .product .name { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .product .meta { font-size: .8rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: .1rem .7rem; margin-top: .15rem; }
+  .product .price { text-align: right; white-space: nowrap; }
+  .product .price b { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+  .product .actions { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: .3rem .8rem; align-items: center; font-size: .85rem; }
+  .discount { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .discount.down { color: var(--ok); } .discount.up { color: var(--bad); }
+  .trend { font-size: 1rem; }
+  .trend.ned { color: var(--ok); } .trend.upp { color: var(--bad); } .trend.lika { color: var(--muted); }
+  @media (min-width: 40rem) {
+    .product { grid-template-columns: 56px 1fr auto 11rem; }
+    .product .actions { grid-column: auto; justify-content: flex-end; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Översikt</h1>
+<form class="filters" method="get">
+  <select name="lista" onchange="this.form.submit()" aria-label="Lista">
+    <option value="">Alla listor</option>
+    {% for l in lists %}<option value="{{ l.id }}" {{ "selected" if lista == l.id }}>{{ l.namn }}</option>{% endfor %}
+  </select>
+  <select name="sort" onchange="this.form.submit()" aria-label="Sortering">
+    <option value="rabatt" {{ "selected" if sort == "rabatt" }}>Störst rabatt först</option>
+    <option value="pris" {{ "selected" if sort == "pris" }}>Lägst pris först</option>
+    <option value="namn" {{ "selected" if sort == "namn" }}>Namn</option>
+  </select>
+  <noscript><button>Visa</button></noscript>
+  <span class="muted small">{{ rows | length }} produkter</span>
+</form>
+
+{% if not rows %}
+<p class="card">Inga produkter bevakas än. <a href="/listor">Lägg till en lista</a>; produkterna dyker upp efter nästa omgång.</p>
+{% endif %}
+
+<div class="products">
+{% for r in rows %}
+  <div class="product">
+    {% if r.bild_url %}<img src="{{ r.bild_url }}" alt="" loading="lazy">{% else %}<div class="noimg"></div>{% endif %}
+    <div>
+      <a class="name" href="/produkt/{{ r.asin }}">{{ r.titel }}</a>
+      <div class="meta">
+        <span>{{ r.lists | join(", ") }}</span>
+        {% if r.prime == "prime" %}<span>Prime</span>{% elif r.prime == "inte_prime" %}<span>Ej Prime</span>{% endif %}
+      </div>
+    </div>
+    <div class="price">
+      {% if r.pris_ore is not none %}<b>{{ r.pris_ore | kr }}</b>
+        {% if r.trend == "ned" %}<span class="trend ned" title="Lägre än för en vecka sedan">↓</span>
+        {% elif r.trend == "upp" %}<span class="trend upp" title="Högre än för en vecka sedan">↑</span>
+        {% elif r.trend == "lika" %}<span class="trend lika" title="Samma som för en vecka sedan">→</span>{% endif %}
+      {% else %}<span class="muted">{{ (r.status or "ej läst") | replace("_", " ") }}</span>{% endif %}
+      <div class="small muted">
+        {% if r.level.reference %}ref {{ r.level.reference.median_ore | kr }}
+          {% if r.rabatt is not none %}<span class="discount {{ 'down' if r.rabatt > 0.5 else 'up' if r.rabatt < -0.5 }}">{{ "%+.0f"|format(-r.rabatt) }} %</span>{% endif %}
+        {% else %}ingen referens än{% endif %}
+      </div>
+    </div>
+    <div class="actions">
+      {% set st = r.larm_status %}
+      <span class="small {{ 'ok' if st == 'larmat' else 'vantar' if st == 'vantar' else 'muted' }}">
+        {% if st == "larmat" %}Larmat vid {{ r.level.rule.last_alert_ore | kr }}
+        {% elif st == "ingen_regel" %}Ingen larmregel
+        {% elif st == "vantar" %}Väntar på historik
+        {% elif st == "av" %}Larm av
+        {% else %}Bevakas{% endif %}
+      </span>
+      {% with asin = r.asin, active = r.level.rule.active %}{% include "_alert_toggle.html" %}{% endwith %}
+    </div>
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

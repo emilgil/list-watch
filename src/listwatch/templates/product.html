@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% set p = v.product %}
+{% set lv = v.level %}
+{% set rr = v.rule_row %}
+{% block title %}{{ p.titel or p.asin }}{% endblock %}
+{% block head %}
+<script src="/static/chart.umd.js" defer></script>
+<style>
+  .head { display: grid; grid-template-columns: 96px 1fr; gap: 1rem; align-items: start; margin-bottom: 1rem; }
+  .head img, .head .noimg { width: 96px; height: 96px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
+  .head h1 { margin: 0 0 .3rem; font-size: 1.15rem; }
+  .facts { display: flex; flex-wrap: wrap; gap: .3rem 1.25rem; font-size: .9rem; }
+  .facts b { font-variant-numeric: tabular-nums; }
+  .periods { display: flex; gap: .5rem; margin-bottom: .5rem; flex-wrap: wrap; }
+  .periods a { padding: .15rem .6rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .periods a.active { color: var(--fg); border-color: var(--fg); }
+  .chart { position: relative; height: 18rem; }
+  .stats { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: .75rem; font-size: .9rem; }
+  .stats b { font-variant-numeric: tabular-nums; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="head">
+  {% if p.bild_url %}<img src="{{ p.bild_url }}" alt="">{% else %}<div class="noimg"></div>{% endif %}
+  <div>
+    <h1>{{ p.titel or p.asin }}</h1>
+    <div class="facts">
+      <span>Pris: <b>{% if p.senaste_status == "pris" %}{{ p.senaste_pris_ore | kr }}{% else %}{{ (p.senaste_status or "ej läst") | replace("_", " ") }}{% endif %}</b></span>
+      <span>Referens: <b>{{ lv.reference.median_ore | kr if lv.reference else "–" }}</b>
+        {% if lv.reference %}<span class="muted small">(median, {{ lv.reference.days }} d Prime-historik)</span>{% endif %}</span>
+      <span>Prime: {{ {"prime": "ja", "inte_prime": "nej"}.get(p.prime_status, "okänd") }}
+        <span class="muted small">{% if p.prime_kontrollerad %}kontrollerad {{ p.prime_kontrollerad | lokal_tid }}{% endif %}</span></span>
+    </div>
+    <div class="facts muted small" style="margin-top:.3rem">
+      <span>{{ p.asin }}</span>
+      <span>Listor: {% for w in v.lists %}{{ w.namn }}{{ ", " if not loop.last }}{% else %}inga (bevakas inte){% endfor %}</span>
+      {% if p.url %}<a href="{{ p.url }}" target="_blank" rel="noopener">Öppna på Amazon</a>{% endif %}
+      <a href="/logg?asin={{ p.asin }}">Händelser</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="periods">
+    {% for key, label in (("30d", "30 d"), ("90d", "90 d"), ("1ar", "1 år"), ("allt", "Allt")) %}
+      <a href="?period={{ key }}" class="{{ 'active' if period == key }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  {% if v.points %}
+  <div class="chart"><canvas id="chart" aria-label="Prisgraf"></canvas></div>
+  {% else %}
+  <p class="muted">Inga mätningar under perioden.</p>
+  {% endif %}
+  {% if v.stats %}
+  <div class="stats">
+    <span>Lägsta <b>{{ v.stats.lagsta_ore | kr }}</b></span>
+    <span>Högsta <b>{{ v.stats.hogsta_ore | kr }}</b></span>
+    <span>Median <b>{{ v.stats.median_ore | kr }}</b></span>
+  </div>
+  {% endif %}
+</div>
+
+<h2>Larm</h2>
+<form class="card" method="post" action="/produkt/{{ p.asin }}/regel">
+  <label class="check"><input type="checkbox" name="larm_aktivt" {{ "checked" if lv.rule.active }}> Larm aktivt för produkten</label>
+  <div class="grid2">
+    <div>
+      <label for="mal_pris">Fast målpris (kr)</label>
+      <input id="mal_pris" type="text" name="mal_pris" inputmode="decimal" placeholder="t.ex. 2 990"
+             value="{{ (rr.mal_pris_ore | kr | replace(' kr', '')) if rr and rr.mal_pris_ore }}">
+      <p class="hint">Larm när priset är högst detta. Tomt = inget fast mål.</p>
+    </div>
+    <div>
+      <label class="check"><input type="checkbox" name="arver_standard" id="arver" {{ "checked" if not rr or rr.arver_standard }}>
+        Ärv listans standard ({{ v.inherited_percent ~ " %" if v.inherited_percent else "ingen standard satt" }})</label>
+      <label for="mal_procent">Egen procent under referens</label>
+      <input id="mal_procent" type="number" name="mal_procent" min="1" max="99" value="{{ rr.mal_procent if rr and rr.mal_procent }}">
+      <p class="hint">Används när "ärv" är avbockad. Kräver minst 7 dagars historik.</p>
+    </div>
+  </div>
+  <label class="check"><input type="checkbox" name="lagsta_nagonsin" {{ "checked" if rr and rr.lagsta_nagonsin_notis }}>
+    Notis vid lägsta pris någonsin (efter 30 dagars historik)</label>
+  <p class="small">
+    Gäller nu:
+    {% if not lv.rule.active %}larm av.
+    {% else %}
+      {% if lv.rule.target_ore %}mål {{ lv.rule.target_ore | kr }}{% endif %}
+      {% if lv.rule.target_ore and lv.rule.percent %} eller {% endif %}
+      {% if lv.rule.percent %}{{ lv.rule.percent }} % under referens
+        {% if lv.percent_level_ore %}(≤ {{ lv.percent_level_ore | kr }}){% else %}<span class="vantar">(väntar på 7 dagars historik)</span>{% endif %}{% endif %}
+      {% if not lv.rule.target_ore and not lv.rule.percent %}inget larmvillkor.{% endif %}
+      {% if lv.rule.last_alert_ore %}<br>Senast larmat vid {{ lv.rule.last_alert_ore | kr }}; nästa larm vid ytterligare 5 % sänkning eller när priset gått över nivån igen.{% endif %}
+    {% endif %}
+  </p>
+  <button class="primary">Spara</button>
+</form>
+
+{% if v.local_watch %}
+<h2>Enstaka produkt</h2>
+<form class="inline" method="post" action="/produkt/{{ p.asin }}/sluta-bevaka">
+  <details class="confirm"><summary><button type="button" class="danger" onclick="this.closest('details').open = true">Sluta bevaka</button></summary>
+    <button class="danger">Bekräfta: sluta bevaka</button></details>
+  <span class="hint">Historiken finns kvar.</span>
+</form>
+{% endif %}
+
+{% if v.points %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const d = {{ chart | safe }};
+  const css = getComputedStyle(document.documentElement);
+  const color = name => css.getPropertyValue(name).trim();
+  const xs = d.x.map(t => Date.parse(t));
+  const pts = ys => ys.map((y, i) => ({x: xs[i], y}));
+  const fmtDate = ms => new Date(ms).toLocaleDateString("sv-SE", {month: "short", day: "numeric"});
+  const fmtKr = v => v.toLocaleString("sv-SE", {minimumFractionDigits: 0, maximumFractionDigits: 2}) + " kr";
+  const sets = [{label: "Pris", data: pts(d.pris), borderColor: color("--accent"), backgroundColor: color("--accent"),
+                 spanGaps: false, stepped: "before", pointRadius: 0, borderWidth: 2}];
+  const line = (label, ys, c) => ys && sets.push({label, data: pts(ys), borderColor: c, borderDash: [6, 4],
+                                                  pointRadius: 0, borderWidth: 1.5});
+  line("Referens", d.referens, color("--muted"));
+  line("Mål", d.mal, color("--ok"));
+  line("Procentnivå", d.procentniva, color("--warn"));
+  new Chart(document.getElementById("chart"), {
+    type: "line",
+    data: {datasets: sets},
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: {mode: "nearest", axis: "x", intersect: false},
+      scales: {
+        x: {type: "linear", ticks: {callback: fmtDate, maxTicksLimit: 6, color: color("--muted")}, grid: {display: false}},
+        y: {ticks: {callback: fmtKr, color: color("--muted")}, grid: {color: color("--line")}},
+      },
+      plugins: {
+        legend: {labels: {color: color("--fg"), boxWidth: 12}},
+        tooltip: {callbacks: {
+          title: items => new Date(items[0].parsed.x).toLocaleString("sv-SE", {dateStyle: "medium", timeStyle: "short"}),
+          label: item => `${item.dataset.label}: ${item.parsed.y == null ? "inget pris" : fmtKr(item.parsed.y)}`,
+        }},
+      },
+    },
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

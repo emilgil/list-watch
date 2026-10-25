@@ -17,6 +17,7 @@ MarkupSafe==3.0.4
 oauthlib==4.0.0
 pydantic==2.14.1
 pydantic_core==2.50.1
+python-multipart==0.0.20
 PyYAML==6.0.3
 requests==2.34.2
 requests-oauthlib==2.0.0

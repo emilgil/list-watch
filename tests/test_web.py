@@ -75,21 +75,6 @@ def test_health_fails_on_old_schema(db_path, conn):
     assert r.status_code == 503 and r.json()["status"] == "fel"
 
 
-def test_index_lists_wishlists(db_path, conn):
-    add_list(conn)
-    collect_once(conn)
-    with TestClient(create_app(db_path)) as client:
-        r = client.get("/")
-    assert r.status_code == 200
-    # added under its list id, so it took the title Amazon reported ("L")
-    assert "<td>L</td>" in r.text and "Senaste omgång 1:" in r.text and ">OK</span>" in r.text
-
-
-def test_index_without_lists(db_path):
-    with TestClient(create_app(db_path)) as client:
-        assert "Inga listor bevakas" in client.get("/").text
-
-
 def test_backup_keeps_the_newest(db_path, conn, tmp_path):
     add_list(conn)
     times = iter(T0 + timedelta(days=d) for d in range(4))

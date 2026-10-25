@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Logg{% endblock %}
+{% block content %}
+<h1>Logg</h1>
+<p class="muted small">En runda per lista och omgång, nyast först. Klicka på en runda för dess händelser.
+  Alla händelser av en typ: {% for t in ("pris_ändrat", "larm_skickat", "larm_misslyckades", "captcha", "drift_notis") %}<a href="/logg?typ={{ t }}">{{ t | replace("_", " ") }}</a>{{ ", " if not loop.last }}{% endfor %}.</p>
+{% if runs %}
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th>Start</th><th class="num">Omg.</th><th>Typ</th><th>Lista</th><th class="num">Tid</th>
+    <th class="num">Sidor</th><th class="num">Lästa</th><th class="num">Prisändr.</th><th class="num">Nya / borttagna</th>
+    <th class="num">Produktsidor</th><th class="num">Prime ändr.</th><th class="num">Larm</th><th class="num">Fel</th>
+    <th>CAPTCHA</th><th>Resultat</th>
+  </tr></thead>
+  <tbody>
+  {% for r in runs %}
+    <tr>
+      <td><a href="/logg/{{ r.id }}">{{ r.start | lokal_tid }}</a></td>
+      <td class="num">{{ r.omgang }}</td>
+      <td>{{ r.typ }}</td>
+      <td>{{ r.list_namn or "–" }}</td>
+      <td class="num">{% if r.slut %}{% set secs = ((r.slut | todt) - (r.start | todt)).total_seconds() | int %}{{ "%d:%02d" | format(secs // 60, secs % 60) }}{% else %}–{% endif %}</td>
+      <td class="num">{{ r.sidor }}</td>
+      <td class="num">{{ r.lasta }}</td>
+      <td class="num">{{ r.prisandrade }}</td>
+      <td class="num">{{ r.nya }} / {{ r.borttagna }}</td>
+      <td class="num">{{ r.produktsidor }}</td>
+      <td class="num">{{ r.prime_andrade }}</td>
+      <td class="num">{{ r.larm_skickade }}{% if r.larm_misslyckade %} <span class="fel">({{ r.larm_misslyckade }} misslyckade)</span>{% endif %}</td>
+      <td class="num {{ 'fel' if r.fel }}">{{ r.fel }}</td>
+      <td class="{{ 'fel' if r.captcha }}">{{ r.captcha or "nej" }}</td>
+      <td class="{{ r.resultat }}">{{ (r.resultat or "pågår") | upper }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="card muted">Inga rundor än.</p>
+{% endif %}
+{% endblock %}

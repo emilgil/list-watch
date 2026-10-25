@@ -51,6 +51,7 @@ class ProductPage:
     status: str
     prime: bool | None  # True = Prime badge or shipped by Amazon, False = other shipper, None = can't tell
     ships_from_amazon: bool | None  # None = no shipper info on the page
+    title: str | None = None
 
 
 def is_captcha(html: str) -> bool:
@@ -172,9 +173,11 @@ def parse_product_page(html: str) -> ProductPage:
         prime = True
     else:
         prime = ships_from_amazon
+    title_node = tree.css_first("#productTitle")
     return ProductPage(
         price_ore=None if out_of_stock else price,
         status=_status(price, out_of_stock),
         prime=prime,
         ships_from_amazon=ships_from_amazon,
+        title=" ".join(title_node.text().split()) or None if title_node else None,
     )
