@@ -1,6 +1,5 @@
 """Step 0: fetch a wishlist the way the service will and report what is readable."""
 import json
-import random
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -8,25 +7,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .parser import (
-    STATUS_MISSING_PRICE,
-    STATUS_OUT_OF_STOCK,
-    WishlistItem,
-    is_captcha,
-    parse_wishlist_page,
-)
+from .amazon import read_wishlist
+from .fetcher import FetchResult, polite
+from .parser import STATUS_MISSING_PRICE, STATUS_OUT_OF_STOCK
 
-MAX_PAGES = 50
-DELAY_RANGE = (5, 15)
+__all__ = ["FetchResult", "ProbeReport", "render_report", "run_probe"]
+
 _LIST_ID = re.compile(r"/wishlist/ls/([A-Z0-9]+)")
-
-
-@dataclass
-class FetchResult:
-    status: int
-    html: str
-    seconds: float
-
 
 @dataclass
 class ProbeReport:
@@ -64,30 +51,16 @@ def run_probe(
     saved.mkdir(parents=True, exist_ok=True)
     report.saved_dir = str(saved)
 
-    items: list[WishlistItem] = []
-    seconds: list[float] = []
-    next_url: str | None = url
-    blocked = False
-    while next_url and report.pages < MAX_PAGES:
-        if report.pages:
-            sleep(random.uniform(*DELAY_RANGE))
-        res = fetch(next_url)
-        report.http_status = res.status
-        seconds.append(res.seconds)
-        if res.status != 200:
-            blocked = True
-            break
-        if is_captcha(res.html):
-            report.captcha = blocked = True
-            break
-        report.pages += 1
-        (saved / f"page-{report.pages}.html").write_text(res.html, encoding="utf-8")
-        page = parse_wishlist_page(res.html)
-        report.list_title = report.list_title or page.title
-        items.extend(page.items)
-        next_url = page.next_url
+    def save(n: int, html: str) -> None:
+        (saved / f"page-{n}.html").write_text(html, encoding="utf-8")
 
-    report.avg_seconds = sum(seconds) / len(seconds) if seconds else 0.0
+    read = read_wishlist(url, polite(fetch, sleep), on_page=save)
+    items = read.items
+    report.http_status = read.http_status
+    report.captcha = read.captcha
+    report.pages = read.pages
+    report.list_title = read.title
+    report.avg_seconds = sum(read.seconds) / len(read.seconds) if read.seconds else 0.0
     report.products = len(items)
     report.price_read = sum(i.price_ore is not None for i in items)
     report.prime_read = sum(i.prime is True for i in items)
@@ -100,7 +73,7 @@ def run_probe(
         {"asin": i.asin, "title": i.title, "status": i.status, "price_ore": i.price_ore, "prime": i.prime}
         for i in items
     ]
-    if blocked or not items:
+    if read.error:
         report.exit_code = 2
     else:
         report.exit_code = 1 if report.product_pages_needed else 0

@@ -56,10 +56,12 @@ Priserna läses direkt från önskelistans sidor. Där syns aktuellt pris för v
    - `ej_i_lager`: tillgänglighetsmarkering för slutsåld ("Inte tillgänglig för närvarande", "Currently unavailable", "Ej i lager" m.fl.).
    - `saknar_pris`: varken pris eller tillgänglighetsmarkering hittades.
 
-   Probe 2026-10-25 visade att listsidan saknar markering för slutsålda produkter: de visar bara "Visa alla köpalternativ". Därför avgör produktsidan vid nästa bakgrundsuppdatering av Prime-cachen om en `saknar_pris`-produkt är `ej_i_lager`.
+   Probe 2026-10-25 visade att listsidan saknar markering för slutsålda produkter: de visar bara "Visa alla köpalternativ". Därför avgör produktsidan vid nästa bakgrundsuppdatering av Prime-cachen om en `saknar_pris`-produkt är `ej_i_lager`. Efter det kan ett `saknar_pris` från listan inte ändra statusen tillbaka, men ett pris på listan kan det (`åter_i_lager`). Mätningen sparas ändå som den lästes.
 3. **Prime-status (hämtning vid behov + cache):** listsidan visar *inte* Prime-status, bara produktsidan gör det. Prime-status cachas per ASIN: status (`prime` / `inte_prime` / `okänd`) och tidpunkt för senaste kontroll. Produktsidan `amazon.se/dp/<ASIN>` hämtas bara när:
    - a) **Inför larm:** priset når larmvillkoret (målpris eller procent) och Prime-statusen är `okänd` eller äldre än `prime_fresh_for_alert`. Larmet skickas först efter kontrollen och bara om status = `prime`.
-   - b) **Bakgrundsuppdatering:** cachen är äldre än `prime_ttl`. Högst `max_product_pages_per_round` per runda, äldsta först.
+   - b) **Bakgrundsuppdatering:** cachen är äldre än `prime_ttl`. Högst `max_product_pages_per_round` per omgång, äldsta först (aldrig kontrollerade först). Uppdateringen görs direkt efter att varje lista lästs, för just den listans produkter, och loggas i listans runda.
+
+   Lokala ASIN-bevakningar läser produktsidan varje runda och uppdaterar då även Prime-cachen. De räknas inte mot taket och loggar ingen `produktsida_hämtad`-händelse.
 
    Produktsidans parser läser Prime-indikator, pris, tillgänglighet och avsändare. Utloggad visar amazon.se ingen Prime-märkning, inte ens för varor som Amazon själva skickar (kontrollerat 2026-10-25). Därför gäller: **Prime-märkning eller "Avsändare: Amazon" = `prime`**, annan avsändare = `inte_prime`, ingen av delarna synlig = `okänd`. Regeln är en första approximation och kan skärpas senare. Samma väntetid (5–15 s) gäller för produktsidor som för listsidor. Vid CAPTCHA eller HTTP-fel på en produktsida avbryts produktsidehämtningarna för resten av rundan, statusen lämnas oförändrad och inga larm som kräver kontroll skickas.
 4. **Tolkning av pris:** alla prisformat normaliseras till öre som heltal. Följande varianter förekommer beroende på språkinställning:
@@ -69,7 +71,7 @@ Priserna läses direkt från önskelistans sidor. Där syns aktuellt pris för v
 
    Samma pris kan stå flera gånger på en rad ("217,90 kr kr217,90"). Parsern tar ett pris per produkt och summerar eller dubbelräknar aldrig.
 5. **Dolda felmallar:** listsidan innehåller vid varje produkt dolda felmallar ("Ett fel inträffade…", "Amazon har stött på ett fel") i `aok-hidden`/`a-hidden`-element. De ignoreras och tolkas aldrig som produktfel eller blockering.
-6. **Rimlighetskontroll:** ett pris under 10 % av medianen markeras som misstänkt och utlöser inget larm förrän det bekräftats vid nästa mätning.
+6. **Rimlighetskontroll:** ett pris under 10 % av medianen (giltiga, icke misstänkta prismätningar de senaste 90 dagarna) markeras som misstänkt och utlöser inget larm förrän det bekräftats vid nästa mätning.
 
 **Hövlighet mot Amazon:** max en förfrågan var 5–15:e sekund (slumpat), en realistisk User-Agent och `Accept-Language: sv-SE`. Vid CAPTCHA eller HTTP 503 pausas rundan med exponentiell backoff, och efter 3 blockerade rundor i följd skickas en driftnotis.
 

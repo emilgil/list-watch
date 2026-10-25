@@ -1,18 +1,45 @@
+import random
 import time
+from dataclasses import dataclass
+from typing import Callable
 
 import httpx
-
-from .probe import FetchResult
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/130.0.0.0 Safari/537.36"
 )
+DELAY_RANGE = (5, 15)
+
 HEADERS = {
     "User-Agent": USER_AGENT,
     "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.5",
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
 }
+
+
+@dataclass
+class FetchResult:
+    status: int  # 0 = no response
+    html: str
+    seconds: float
+
+
+Fetch = Callable[[str], FetchResult]
+
+
+def polite(fetch: Fetch, sleep: Callable[[float], None] = time.sleep) -> Fetch:
+    """Wrap `fetch` so consecutive requests are 5–15 s apart (random), list and product pages alike."""
+    first = True
+
+    def wrapped(url: str) -> FetchResult:
+        nonlocal first
+        if not first:
+            sleep(random.uniform(*DELAY_RANGE))
+        first = False
+        return fetch(url)
+
+    return wrapped
 
 
 def make_fetcher(transport: httpx.BaseTransport | None = None):

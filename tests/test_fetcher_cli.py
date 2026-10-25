@@ -1,8 +1,7 @@
 import httpx
 
 from listwatch import cli
-from listwatch.fetcher import make_fetcher
-from listwatch.probe import FetchResult
+from listwatch.fetcher import FetchResult, make_fetcher, polite
 
 
 def test_fetcher_sends_swedish_locale_and_browser_user_agent():
@@ -27,6 +26,14 @@ def test_fetcher_follows_redirects():
 
     res = make_fetcher(transport=httpx.MockTransport(handler))("https://www.amazon.se/a")
     assert res.html == "ok"
+
+
+def test_polite_waits_5_to_15_s_between_requests_but_not_before_the_first():
+    slept = []
+    fetch = polite(lambda url: FetchResult(200, url, 0.1), sleep=slept.append)
+    for u in ("a", "b", "c"):
+        fetch(u)
+    assert len(slept) == 2 and all(5 <= s <= 15 for s in slept)
 
 
 def test_cli_probe_prints_report_and_returns_exit_code(capsys, tmp_path, monkeypatch):
