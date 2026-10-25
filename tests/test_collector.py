@@ -293,12 +293,13 @@ def test_price_below_10_percent_of_median_is_suspicious(conn):
     no_prime_refresh(conn)
     add_list(conn)
     src, clock = FakeSource(), Clock()
-    for price in (1000, 1000, 1000, 99, 100):
+    for price in (1000, 1000, 1000, 50, 52, 50, 1000, 40, 900):
         src.lists["L1"] = ok(item("A000000001", price))
         collect(conn, src, now=clock)
         clock.advance(hours=6)
     flags = [r[0] for r in conn.execute("SELECT misstankt FROM price_point ORDER BY id")]
-    assert flags == [0, 0, 0, 1, 0]
+    # 50 is suspicious, confirmed by 52 and stays confirmed; a lone 40 is not confirmed
+    assert flags == [0, 0, 0, 1, 0, 0, 0, 1, 0]
 
 
 def test_local_watches_read_product_pages(conn):

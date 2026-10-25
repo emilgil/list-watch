@@ -8,6 +8,10 @@ Rules (spec "Datainsamling" and docs/spec-logg.md):
 - Product pages are fetched for stale Prime caches (oldest first, capped per omgång) and
   always for local ASIN watches. CAPTCHA or HTTP error on a product page stops product
   pages for the rest of the omgång.
+- After each list is stored its new measurements are judged by `alerts`. An alert whose
+  Prime status is unknown or older than prime_fresh_for_alert waits for a product page
+  check (not counted against the cap); it is sent only if Prime. senaste_larm_pris is set
+  only when the notification was sent, so a failed send is retried next round.
 """
 import sqlite3
 import statistics
@@ -16,12 +20,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
+from . import alerts
 from .db import setting_int, utc_iso
+from .notify import Notifier, notifier_from_settings
 from .parser import BASE_URL, STATUS_MISSING_PRICE, STATUS_OUT_OF_STOCK, STATUS_PRICE, WishlistItem
 from .source import Source
 
 PRIME = {True: "prime", False: "inte_prime", None: "okänd"}
 SUSPICIOUS_SHARE = 0.10  # below 10 % of the median
+CONFIRM_SHARE = 0.10  # a suspicious price is confirmed by a next price within ±10 %
 MEDIAN_DAYS = 90
 
 Clock = Callable[[], datetime]
@@ -36,6 +43,8 @@ class _Omgang:
     id: int
     product_pages_left: int  # background refresh budget
     prime_ttl: timedelta
+    prime_fresh_for_alert: timedelta
+    notifier: Notifier
     seen: set[str] = field(default_factory=set)
     product_pages_blocked: bool = False
 
@@ -92,12 +101,20 @@ class _Run:
         return "ok"
 
 
-def collect(conn: sqlite3.Connection, source: Source, typ: str = "schemalagd", now: Clock = _utcnow) -> list[int]:
-    """Read every list once. Returns the run ids, one per list."""
+def collect(
+    conn: sqlite3.Connection,
+    source: Source,
+    typ: str = "schemalagd",
+    now: Clock = _utcnow,
+    notifier: Notifier | None = None,
+) -> list[int]:
+    """Read every list once and send alerts. Returns the run ids, one per list."""
     omgang = _Omgang(
         id=conn.execute("SELECT coalesce(max(omgang), 0) + 1 FROM run").fetchone()[0],
         product_pages_left=setting_int(conn, "max_product_pages_per_round"),
         prime_ttl=timedelta(seconds=setting_int(conn, "prime_ttl")),
+        prime_fresh_for_alert=timedelta(seconds=setting_int(conn, "prime_fresh_for_alert")),
+        notifier=notifier or notifier_from_settings(conn),
     )
     run_ids = []
     for wl in conn.execute("SELECT * FROM wishlist ORDER BY id").fetchall():
@@ -138,6 +155,7 @@ def _collect_list(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqlit
     except BaseException:
         conn.execute("ROLLBACK")
         raise
+    _check_alerts(conn, source, run, omgang)
     _refresh_prime(conn, source, run, {i.asin for i in items}, omgang)
 
 
@@ -192,6 +210,13 @@ def _apply_list(conn: sqlite3.Connection, run: _Run, wl: sqlite3.Row, items: lis
 
 
 def _suspicious(conn: sqlite3.Connection, asin: str, price: int, now: datetime) -> bool:
+    """Below 10 % of the median, unless the previous measurement already had about this price."""
+    prev = conn.execute(
+        "SELECT pris_ore FROM price_point WHERE asin = ? AND status = 'pris' ORDER BY tidpunkt DESC, id DESC LIMIT 1",
+        (asin,),
+    ).fetchone()
+    if prev is not None and abs(prev[0] - price) <= CONFIRM_SHARE * price:
+        return False
     since = utc_iso(now - timedelta(days=MEDIAN_DAYS))
     prices = [
         r[0]
@@ -266,6 +291,55 @@ def _read_product(conn: sqlite3.Connection, source: Source, run: _Run, asin: str
     return res.page
 
 
+def _prime_confirmed(conn: sqlite3.Connection, source: Source, run: _Run, asin: str, point_id: int, omgang: _Omgang) -> bool:
+    """Is the offer Prime? Checks the product page first if the cache is unknown or too old."""
+    prod = conn.execute("SELECT prime_status, prime_kontrollerad FROM product WHERE asin = ?", (asin,)).fetchone()
+    fresh_since = utc_iso(run.now() - omgang.prime_fresh_for_alert)
+    status = prod["prime_status"]
+    if status == "okänd" or prod["prime_kontrollerad"] is None or prod["prime_kontrollerad"] < fresh_since:
+        if omgang.product_pages_blocked:
+            return False
+        page = _read_product(conn, source, run, asin, "larmkontroll", omgang)
+        if page is None:
+            return False
+        status = PRIME[page.prime]
+        conn.execute("UPDATE price_point SET prime = ? WHERE id = ?", (status, point_id))
+    return status == "prime"
+
+
+def _check_alerts(conn: sqlite3.Connection, source: Source, run: _Run, omgang: _Omgang) -> None:
+    points = conn.execute(
+        "SELECT id, asin FROM price_point WHERE run_id = ? AND status = 'pris' AND misstankt = 0 ORDER BY id",
+        (run.id,),
+    ).fetchall()
+    for point in points:
+        asin = point["asin"]
+        d = alerts.evaluate(conn, point["id"], run.now())
+        if d is None:
+            continue
+        if d.reset:
+            conn.execute("UPDATE alert_rule SET senaste_larm_pris = NULL WHERE asin = ?", (asin,))
+        if not d.notify or not _prime_confirmed(conn, source, run, asin, point["id"], omgang):
+            continue
+        prod = conn.execute("SELECT titel, url FROM product WHERE asin = ?", (asin,)).fetchone()
+        title, body = alerts.message(prod["titel"] or asin, prod["url"], d)
+        error = omgang.notifier.send(title, body)
+        if error:
+            run.count["larm_misslyckade"] += 1
+            run.event("larm_misslyckades", asin, efter=d.price_ore, text=error)
+            continue
+        run.count["larm_skickade"] += 1
+        run.event("larm_skickat", asin, efter=d.price_ore, text=body)
+        if d.threshold_alert:
+            conn.execute(
+                """INSERT INTO alert_rule (asin, senaste_larm_pris, senaste_larm_tid) VALUES (?, ?, ?)
+                   ON CONFLICT (asin) DO UPDATE SET
+                       senaste_larm_pris = excluded.senaste_larm_pris,
+                       senaste_larm_tid = excluded.senaste_larm_tid""",
+                (asin, d.price_ore, utc_iso(run.now())),
+            )
+
+
 def _refresh_prime(conn: sqlite3.Connection, source: Source, run: _Run, asins: set[str], omgang: _Omgang) -> None:
     if omgang.product_pages_blocked or omgang.product_pages_left <= 0:
         return
@@ -315,6 +389,7 @@ def _collect_local(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqli
         omgang.seen.add(asin)
         _measure(conn, run, asin, page.status, page.price_ore, "produktsida")
     run.read_failed = bool(asins) and run.count["lasta"] == 0
+    _check_alerts(conn, source, run, omgang)
     conn.execute(
         "UPDATE wishlist SET status = ?, senast_synkad = ? WHERE id = ?",
         ("blockerad" if omgang.product_pages_blocked else "ok", utc_iso(run.now()), wl["id"]),

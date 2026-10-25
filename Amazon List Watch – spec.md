@@ -115,7 +115,7 @@ En produkt som finns i flera listor lagras en gång och mäts en gång. En körn
 
 Ett larm går när priset korsar en nivå nedåt, och sedan inte igen förrän priset sjunker ytterligare eller först har gått upp över nivån.
 
-**Referenspris:** medianen av alla giltiga mätningar de senaste 90 dagarna. Finns mindre än 90 dagars historik används det som finns, och GUI:t visar "referens baserad på X dagar". Inget procentlarm förrän minst 7 dagars data finns, för att undvika falsklarm direkt efter import.
+**Referenspris:** medianen av alla giltiga mätningar (status `pris`, Prime, inte misstänkta) de senaste 90 dagarna, utan den mätning som bedöms. Finns mindre än 90 dagars historik används det som finns, och GUI:t visar "referens baserad på X dagar". Inget procentlarm förrän minst 7 dagars data finns, för att undvika falsklarm direkt efter import.
 
 **Villkor**, kontrolleras efter varje ny mätning:
 
@@ -129,9 +129,13 @@ Ett larm går när priset korsar en nivå nedåt, och sedan inte igen förrän p
 2. Fortsätter priset att ligga under nivån: ingen ny notis, utom om det sjunker minst 5 % till under senaste\_larm\_pris.
 3. Går priset över nivån igen nollställs spärren, så nästa korsning ger ny notis.
 4. Misstänkta priser (se Datainsamling) utlöser inget larm. Endast Prime-erbjudanden larmar, och referenspriset räknas bara på Prime-mätningar.
-5. Är Prime-statusen `okänd` eller äldre än `prime_fresh_for_alert` när villkoret uppfylls, hämtas produktsidan först (se Datainsamling). Larmet skickas bara om kontrollen ger `prime`. Misslyckas kontrollen (CAPTCHA, HTTP-fel) skickas inget larm i den rundan, och spärren påverkas inte.
+5. Är Prime-statusen `okänd` eller äldre än `prime_fresh_for_alert` när villkoret uppfylls, hämtas produktsidan först (se Datainsamling). Larmet skickas bara om kontrollen ger `prime`. Misslyckas kontrollen (CAPTCHA, HTTP-fel) skickas inget larm i den rundan, och spärren påverkas inte. Kontrollens resultat skrivs också in i den aktuella mätningens Prime-fält.
+6. Mätningar utan pris (`ej_i_lager`, `saknar_pris`) bedöms inte och nollställer inte spärren. Samma låga pris larmar alltså inte igen bara för att varan varit slut emellan.
+7. Ett misstänkt pris bekräftas om nästa mätning ligger inom ±10 % av det. Den bekräftande mätningen är då inte misstänkt och kan larma.
+8. Spärren (`senaste_larm_pris`) sätts bara när notisen faktiskt skickades. Ett misslyckat utskick loggas som `larm_misslyckades` och prövas igen nästa runda.
+9. `larm_aktivt` = av stänger alla larm för produkten, även lägsta pris någonsin.
 
-**Lägsta pris någonsin:** valfritt per produkt, går när priset understiger allt tidigare uppmätt, efter minst 30 dagars historik.
+**Lägsta pris någonsin:** valfritt per produkt, går när priset understiger allt tidigare uppmätt (giltiga mätningar, oavsett Prime), efter minst 30 dagars historik. Larmet kräver Prime som andra larm men använder inte spärren: varje nytt bottenpris ger en notis. Utlöses flera regler samtidigt blir det en notis.
 
 **Notisinnehåll:** produktnamn, nytt pris, referenspris, rabatt i procent, vilken regel som utlöste larmet och länk till Amazon. Exempel: *"Sony WH-1000XM5: 2 990 kr (−25 % mot referens 3 990 kr). Under ditt mål på 3 200 kr."*
 

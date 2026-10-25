@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## State of the repo
 
-`Amazon List Watch – spec.md` (written in Swedish) is the source of truth. Step 0 (`listwatch probe`) is implemented in `src/listwatch/` (`cli`, `fetcher`, `parser`, `prices`, `probe`) the database layer (`db`, `migrations/`, `listwatch migrate`) and the collector (`source` interface, `amazon` source, `collector.collect()`; no scheduler, alerts or CLI entry yet) with pytest tests in `tests/`. Set up with `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'`, then run tests with `.venv/bin/pytest` (single test: `.venv/bin/pytest tests/test_prices.py -k name`). There is no lint tooling yet. This directory is a standalone project inside a larger workspace; the parent `/mnt/c/temp/github/claude/CLAUDE.md` describes Home Assistant tooling that does **not** apply here (the spec explicitly excludes any Home Assistant integration). Stage files explicitly; don't `git add` from the parent directory.
+`Amazon List Watch – spec.md` (written in Swedish) is the source of truth. Step 0 (`listwatch probe`) is implemented in `src/listwatch/` (`cli`, `fetcher`, `parser`, `prices`, `probe`) the database layer (`db`, `migrations/`, `listwatch migrate`) the collector (`source` interface, `amazon` source, `collector.collect()`) and the alert engine (`alerts` decisions + `notify` Apprise, run from the collector after each list is stored; no scheduler, web UI or CLI entry for collecting yet) with pytest tests in `tests/`. Set up with `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'`, then run tests with `.venv/bin/pytest` (single test: `.venv/bin/pytest tests/test_prices.py -k name`). There is no lint tooling yet. This directory is a standalone project inside a larger workspace; the parent `/mnt/c/temp/github/claude/CLAUDE.md` describes Home Assistant tooling that does **not** apply here (the spec explicitly excludes any Home Assistant integration). Stage files explicitly; don't `git add` from the parent directory.
 
 ## What it is
 
@@ -33,6 +33,7 @@ Schema lives in `src/listwatch/migrations/NNNN_*.sql`, applied by `listwatch mig
 - Alert fires on downward crossing, then is suppressed until price drops a further ≥5 % below `senaste_larm_pris` or goes back above the level (which resets it).
 - Only **Prime** offers alert. Prices <10 % of the median are "suspicious" and don't alert until confirmed by the next measurement.
 - Optional "all-time low" alert, only after ≥30 days of history.
+- Decided details (spec Larmlogik 5–9): the reference excludes the point being judged; non-`pris` points neither alert nor reset; a suspicious price is confirmed by a next price within ±10 % (in `collector._suspicious`); `senaste_larm_pris` is set only after a successful send; the Prime check result is written back into the current `price_point.prime`. Apprise URLs are the `apprise_urls` setting, one per line.
 
 ## Required repo layout (per the spec's install section)
 
