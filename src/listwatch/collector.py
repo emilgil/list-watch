@@ -5,7 +5,8 @@ Rules (spec "Datainsamling" and docs/spec-logg.md):
   every list's run, but measured (price_point + events) only in the first.
 - Events are written only on change; unchanged products just count as read.
 - A list that says `saknar_pris` cannot overrule `ej_i_lager` decided by a product page.
-- Product pages are fetched for stale Prime caches (oldest first, capped per omgång) and
+- Product pages are fetched for stale Prime caches (`saknar_pris` first, since only the
+  product page can tell they are out of stock, then oldest first; capped per omgång) and
   always for local ASIN watches. CAPTCHA or HTTP error on a product page stops product
   pages for the rest of the omgång.
 - CAPTCHA or HTTP 503 on a list page stops the whole omgång (remaining lists get no run),
@@ -407,7 +408,7 @@ def _refresh_prime(conn: sqlite3.Connection, source: Source, run: _Run, asins: s
         for r in conn.execute(
             """SELECT asin FROM product
                WHERE aktiv = 1 AND (prime_kontrollerad IS NULL OR prime_kontrollerad < ?)
-               ORDER BY prime_kontrollerad IS NOT NULL, prime_kontrollerad, asin""",
+               ORDER BY senaste_status != 'saknar_pris', prime_kontrollerad IS NOT NULL, prime_kontrollerad, asin""",
             (cutoff,),
         )
         if r["asin"] in asins

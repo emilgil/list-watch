@@ -243,6 +243,17 @@ def test_prime_refresh_oldest_first_within_budget(conn):
     assert src.product_calls[4:] == ["A000000001", "A000000002"]
 
 
+def test_prime_refresh_takes_missing_price_first(conn):
+    conn.execute("UPDATE settings SET varde = '2' WHERE nyckel = 'max_product_pages_per_round'")
+    add_list(conn)
+    src, clock = FakeSource(), Clock()
+    src.lists["L1"] = ok(item("A000000001", 100), item("A000000002", 100), item("A000000003"), item("A000000004"))
+    src.products["A000000003"] = page(status="ej_i_lager", price=None)
+    collect(conn, src, now=clock)
+    assert src.product_calls == ["A000000003", "A000000004"]
+    assert product(conn, "A000000003")["senaste_status"] == "ej_i_lager"
+
+
 def test_measurement_uses_the_prime_cache(conn):
     add_list(conn)
     src, clock = FakeSource(), Clock()
