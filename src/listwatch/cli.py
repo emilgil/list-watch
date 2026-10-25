@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -86,6 +87,67 @@ def _add_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _local_time(value: str | None) -> str:
+    if not value:
+        return "aldrig"
+    t = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return t.astimezone(ZoneInfo("Europe/Stockholm")).strftime("%Y-%m-%d %H:%M")
+
+
+def _lists(args: argparse.Namespace) -> int:
+    conn = connect(args.db)
+    try:
+        if _needs_migrate(conn):
+            return 2
+        rows = conn.execute(
+            """SELECT w.*, (SELECT count(*) FROM wishlist_product wp
+                            WHERE wp.wishlist_id = w.id AND wp.borttagen IS NULL) AS produkter
+               FROM wishlist w ORDER BY w.id"""
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        print("Inga listor bevakas (lägg till med listwatch add-list <url>)")
+        return 0
+    print(f"{'id':>3}  {'namn':<24} {'list-id':<14} {'produkter':>9}  {'larm':>5}  {'status':<9} senast synkad")
+    for r in rows:
+        larm = f"{r['standard_procent']} %" if r["standard_aktiv"] else "–"
+        print(
+            f"{r['id']:>3}  {r['namn'][:24]:<24} {(r['list_id'] or 'lokal'):<14} {r['produkter']:>9}  "
+            f"{larm:>5}  {r['status']:<9} {_local_time(r['senast_synkad'])}"
+        )
+    return 0
+
+
+def _remove_list(args: argparse.Namespace) -> int:
+    conn = connect(args.db)
+    try:
+        if _needs_migrate(conn):
+            return 2
+        wl = conn.execute(
+            "SELECT id, namn, list_id FROM wishlist WHERE list_id = ? OR CAST(id AS TEXT) = ?", (args.lista, args.lista)
+        ).fetchone()
+        if wl is None:
+            print(f"Fel: ingen lista med id eller list-id {args.lista} (se listwatch lists)", file=sys.stderr)
+            return 1
+        conn.execute("BEGIN")
+        try:
+            conn.execute("DELETE FROM wishlist WHERE id = ?", (wl["id"],))  # wishlist_product cascades
+            inactive = conn.execute(
+                """UPDATE product SET aktiv = 0 WHERE aktiv = 1 AND NOT EXISTS (
+                       SELECT 1 FROM wishlist_product wp WHERE wp.asin = product.asin AND wp.borttagen IS NULL)"""
+            ).rowcount
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+    print(f"Lista borttagen: {wl['namn']} ({wl['list_id'] or 'lokal'})")
+    print(f"{inactive} produkter finns inte i någon annan lista och bevakas inte längre; prishistoriken finns kvar")
+    return 0
+
+
 def _collect(args: argparse.Namespace) -> int:
     conn = connect(args.db)
     try:
@@ -127,6 +189,13 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--procent", type=int, help="standardlarm: procent under referenspriset (1–99)")
     a.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
     a.set_defaults(func=_add_list)
+    ls = sub.add_parser("lists", help="Visa bevakade listor")
+    ls.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
+    ls.set_defaults(func=_lists)
+    r = sub.add_parser("remove-list", help="Sluta bevaka en lista (prishistoriken behålls)")
+    r.add_argument("lista", help="listans id (se listwatch lists) eller Amazons list-id")
+    r.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
+    r.set_defaults(func=_remove_list)
     c = sub.add_parser("collect", help="Kör en insamlingsomgång nu (manuell)")
     c.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
     c.add_argument("-v", "--verbose", action="store_true", help="skriv löpande en rad per listpost och hämtad sida")
