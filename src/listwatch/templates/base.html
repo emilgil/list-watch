@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}listwatch{% endblock %}</title>
+<style>
+  :root { --fg: #1d1d1f; --muted: #6e6e73; --bg: #fff; --line: #e5e5ea; --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #f2f2f7; --muted: #a1a1a6; --bg: #1c1c1e; --line: #38383a; --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+  }
+  body { margin: 0; padding: 1.5rem 1rem; font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 60rem; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+  .muted { color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .ok { color: var(--ok); } .delvis { color: var(--warn); } .fel, .blockerad, .privat { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

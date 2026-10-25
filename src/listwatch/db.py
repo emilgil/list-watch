@@ -65,11 +65,7 @@ def migrate(path: Path | str, now: Callable[[], datetime] = datetime.now) -> Mig
         backup = None
         if pending and current > 0:
             backup = path.with_name(f"{path.stem}.v{current}-{now():%Y%m%d-%H%M%S}.bak")
-            dst = sqlite3.connect(backup)
-            try:
-                conn.backup(dst)
-            finally:
-                dst.close()
+            _copy(conn, backup)
         for version, sql in pending:
             try:
                 conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {version};\nCOMMIT;")
@@ -80,6 +76,42 @@ def migrate(path: Path | str, now: Callable[[], datetime] = datetime.now) -> Mig
         return MigrateResult(current, schema_version(conn), backup)
     finally:
         conn.close()
+
+
+def _copy(conn: sqlite3.Connection, dest: Path) -> None:
+    dst = sqlite3.connect(dest)
+    try:
+        conn.backup(dst)
+    finally:
+        dst.close()
+
+
+@dataclass
+class BackupResult:
+    path: Path
+    removed: list[Path]
+
+
+def backup(path: Path | str, dest_dir: Path | str, keep: int = 14, now: Callable[[], datetime] = datetime.now) -> BackupResult:
+    """Online copy of the database (sqlite backup API, safe while the service runs).
+
+    Keeps the `keep` newest `<stem>-YYYYmmdd-HHMMSS.db` files in `dest_dir`.
+    """
+    path, dest_dir = Path(path), Path(dest_dir)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{path.stem}-{now():%Y%m%d-%H%M%S}.db"
+    conn = connect(path)
+    try:
+        _copy(conn, dest)
+    finally:
+        conn.close()
+    copies = sorted(dest_dir.glob(f"{path.stem}-????????-??????.db"))
+    removed = copies[:-keep] if keep > 0 else []
+    for old in removed:
+        old.unlink()
+    return BackupResult(dest, removed)
 
 
 def setting(conn: sqlite3.Connection, key: str) -> str:

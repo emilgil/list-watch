@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from . import scheduler
 from .amazon import list_id_from_url
-from .db import connect, latest_version, migrate, schema_version, utc_iso
+from .db import backup, connect, latest_version, migrate, schema_version, utc_iso
 from .fetcher import make_fetcher
 from .parser import BASE_URL
 from .probe import render_report, run_probe
@@ -16,6 +16,9 @@ from .probe import render_report, run_probe
 DATA_DIR = Path(os.environ.get("LISTWATCH_DATA_DIR", "/var/lib/listwatch"))
 DEFAULT_PROBE_DIR = DATA_DIR / "probe"
 DEFAULT_DB = DATA_DIR / "listwatch.db"
+DEFAULT_PORT = int(os.environ.get("LISTWATCH_PORT", "8080"))
+DEFAULT_HOST = os.environ.get("LISTWATCH_HOST", "0.0.0.0")
+LOG_LEVEL = os.environ.get("LISTWATCH_LOG_LEVEL", "INFO").upper()
 
 
 def _probe(args: argparse.Namespace) -> int:
@@ -148,6 +151,40 @@ def _remove_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _serve(args: argparse.Namespace) -> int:
+    import logging
+
+    import uvicorn
+
+    from .web import create_app
+
+    # journald adds the time stamp
+    logging.basicConfig(level=LOG_LEVEL, format="%(levelname)s %(name)s: %(message)s")
+    if LOG_LEVEL != "DEBUG":
+        logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    conn = connect(args.db)
+    try:
+        if _needs_migrate(conn):
+            return 2
+    finally:
+        conn.close()
+    app = create_app(args.db, scheduler.Scheduler(args.db))
+    uvicorn.run(app, host=args.host, port=args.port, log_level=LOG_LEVEL.lower(), log_config=None)
+    return 0
+
+
+def _backup(args: argparse.Namespace) -> int:
+    try:
+        res = backup(args.db, args.dir or args.db.parent / "backup", keep=args.keep)
+    except Exception as e:
+        print(f"Fel: säkerhetskopiering misslyckades: {e}", file=sys.stderr)
+        return 1
+    print(f"Säkerhetskopia: {res.path}")
+    for old in res.removed:
+        print(f"Borttagen: {old}")
+    return 0
+
+
 def _collect(args: argparse.Namespace) -> int:
     conn = connect(args.db)
     try:
@@ -189,6 +226,16 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--procent", type=int, help="standardlarm: procent under referenspriset (1–99)")
     a.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
     a.set_defaults(func=_add_list)
+    s = sub.add_parser("serve", help="Kör tjänsten: schemaläggare och webbgränssnitt")
+    s.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
+    s.add_argument("--host", default=DEFAULT_HOST, help="adress att lyssna på")
+    s.add_argument("--port", type=int, default=DEFAULT_PORT, help="port för webbgränssnittet")
+    s.set_defaults(func=_serve)
+    b = sub.add_parser("backup", help="Säkerhetskopiera databasen")
+    b.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
+    b.add_argument("--dir", type=Path, help="katalog för kopiorna (standard: backup/ bredvid databasen)")
+    b.add_argument("--keep", type=int, default=14, help="antal kopior att spara")
+    b.set_defaults(func=_backup)
     ls = sub.add_parser("lists", help="Visa bevakade listor")
     ls.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
     ls.set_defaults(func=_lists)

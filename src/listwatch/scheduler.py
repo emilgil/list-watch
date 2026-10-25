@@ -111,6 +111,20 @@ def run_omgang(
     return res
 
 
+def _log_result(conn: sqlite3.Connection, res: CollectResult) -> None:
+    for i in res:
+        r = conn.execute("SELECT * FROM run WHERE id = ?", (i,)).fetchone()
+        log.info(
+            "omgång %d, %s: %s, %d lästa, %d prisändrade, %d nya, %d borttagna, %d produktsidor, "
+            "%d larm, %d larm misslyckade, %d fel%s",
+            res.omgang, r["list_namn"], r["resultat"], r["lasta"], r["prisandrade"], r["nya"], r["borttagna"],
+            r["produktsidor"], r["larm_skickade"], r["larm_misslyckade"], r["fel"],
+            f", CAPTCHA på {r['captcha']}" if r["captcha"] else "",
+        )
+    if res.blocked:
+        log.warning("omgång %d blockerad av Amazon (CAPTCHA eller HTTP 503)", res.omgang)
+
+
 class Scheduler:
     """APScheduler wrapper. Each job opens its own connection (jobs run in worker threads)."""
 
@@ -146,6 +160,10 @@ class Scheduler:
     def shutdown(self) -> None:
         self._aps.shutdown(wait=False)
 
+    @property
+    def running(self) -> bool:
+        return self._aps.running
+
     def next_run(self) -> datetime | None:
         job = self._aps.get_job("omgang")
         return job.next_run_time if job else None
@@ -168,14 +186,20 @@ class Scheduler:
         try:
             conn = connect(self.db_path)
             try:
-                return run_omgang(conn, self.source_factory(), typ=typ, now=self.now, notifier=self.notifier)
+                res = run_omgang(conn, self.source_factory(), typ=typ, now=self.now, notifier=self.notifier)
+                _log_result(conn, res)
+                return res
             finally:
                 conn.close()
         finally:
             self._lock.release()
 
     def _plan(self, at: datetime) -> None:
-        self._aps.add_job(self._scheduled, "date", id="omgang", run_date=at, replace_existing=True)
+        # No misfire grace limit: a start missed while the process was suspended still runs
+        # (late), otherwise the chain of one-shot jobs would end there.
+        self._aps.add_job(
+            self._scheduled, "date", id="omgang", run_date=at, replace_existing=True, misfire_grace_time=None
+        )
 
     def _scheduled(self) -> None:
         try:
