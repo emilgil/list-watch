@@ -156,12 +156,13 @@ def _serve(args: argparse.Namespace) -> int:
 
     import uvicorn
 
-    from .web import create_app
+    from .web import HealthLogFilter, create_app
 
     # journald adds the time stamp
     logging.basicConfig(level=LOG_LEVEL, format="%(levelname)s %(name)s: %(message)s")
     if LOG_LEVEL != "DEBUG":
         logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").addFilter(HealthLogFilter())
     conn = connect(args.db)
     try:
         if _needs_migrate(conn):

@@ -1,4 +1,5 @@
 """Web UI and /health, served by `listwatch serve` in the same process as the scheduler."""
+import logging
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -24,6 +25,14 @@ def local_time(value: str | datetime | None) -> str:
 
 
 templates.env.filters["lokal_tid"] = local_time
+
+
+class HealthLogFilter(logging.Filter):
+    """Keep /health polling (install.sh, monitoring) out of the uvicorn access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        return not (isinstance(args, tuple) and len(args) >= 3 and str(args[2]).startswith("/health"))
 
 
 def _last_omgang(conn: sqlite3.Connection) -> dict | None:

@@ -125,3 +125,17 @@ def test_cli_serve_requires_migrated_db(tmp_path, capsys):
 def test_local_time_follows_dst():
     assert local_time("2026-10-25T00:30:00Z") == "2026-10-25 02:30"  # still CEST
     assert local_time("2026-10-25T12:00:00Z") == "2026-10-25 13:00"  # CET after the switch
+
+
+def test_health_requests_are_kept_out_of_the_access_log():
+    import logging
+
+    from listwatch.web import HealthLogFilter
+
+    def record(path):
+        args = ("127.0.0.1:5000", "GET", path, "1.1", 200)
+        return logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '%s - "%s %s HTTP/%s" %d', args, None)
+
+    f = HealthLogFilter()
+    assert not f.filter(record("/health"))
+    assert f.filter(record("/"))
