@@ -23,7 +23,7 @@ from fastapi.templating import Jinja2Templates
 from . import lists, webdata
 from .alerts import kr
 from .db import connect, latest_version, schema_version, set_setting, setting, utc_iso
-from .notify import Notifier, notifier_from_settings
+from .notify import AppriseNotifier, Notifier, notifier_from_settings
 from .prices import parse_price_ore
 from .scheduler import Scheduler, interval
 
@@ -440,10 +440,12 @@ def create_app(
         return _redirect("/installningar", ok="Inställningarna är sparade")
 
     @app.post("/installningar/testnotis", response_class=HTMLResponse)
-    def test_notice():
+    def test_notice(apprise_urls: str | None = Form(None)):
+        """Sends to the URLs in the form when given (not yet saved), else the saved ones."""
         conn = db()
         try:
-            n = notifier or notifier_from_settings(conn)
+            typed = [u.strip() for u in (apprise_urls or "").splitlines() if u.strip()]
+            n = notifier or (AppriseNotifier(typed) if typed else notifier_from_settings(conn))
             error = n.send("listwatch: testnotis", "Det här är en testnotis från listwatch.")
             conn.execute(
                 "INSERT INTO event (tid, typ, text) VALUES (?, 'test_notis', ?)",

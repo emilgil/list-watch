@@ -345,3 +345,23 @@ def test_test_notice(client, conn, notifier):
 def test_static_files(client):
     assert client.get("/static/htmx.min.js").status_code == 200
     assert client.get("/static/chart.umd.js").status_code == 200
+
+
+def test_test_notice_uses_the_typed_urls(db_path, conn, monkeypatch):
+    sent_to = []
+
+    class Recorder:
+        def __init__(self, urls):
+            self.urls = urls
+
+        def send(self, title, body):
+            sent_to.append(self.urls)
+            return None
+
+    monkeypatch.setattr("listwatch.web.AppriseNotifier", Recorder)
+    monkeypatch.setattr("listwatch.web.notifier_from_settings", lambda conn: Recorder(["sparad://"]))
+    client = TestClient(create_app(db_path))
+    client.post("/installningar/testnotis", data={"apprise_urls": " ntfy://ny \n\n"})
+    client.post("/installningar/testnotis", data={"apprise_urls": ""})
+    assert sent_to == [["ntfy://ny"], ["sparad://"]]
+    assert conn.execute("SELECT varde FROM settings WHERE nyckel = 'apprise_urls'").fetchone() is None  # testing does not save

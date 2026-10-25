@@ -8,9 +8,9 @@
   <textarea id="apprise_urls" name="apprise_urls" placeholder="ntfy://mitt-ämne&#10;tgram://bottoken/chatid">{{ s.apprise_urls }}</textarea>
   <p class="hint">En per rad. Larm, driftnotiser och testnotiser går till alla.
     Format: <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">Apprise-wikin</a>.</p>
-  <p><button type="button" hx-post="/installningar/testnotis" hx-target="#testnotis">Skicka testnotis</button>
+  <p><button type="button" hx-post="/installningar/testnotis" hx-include="#apprise_urls" hx-target="#testnotis">Skicka testnotis</button>
     <span id="testnotis" class="small"></span></p>
-  <p class="hint">Testnotisen använder de sparade URL:erna; spara först om du ändrat dem.</p>
+  <p class="hint">Testnotisen går till URL:erna i fältet, även osparade. Glöm inte att spara.</p>
 
   <div class="grid2">
     <div>
