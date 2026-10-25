@@ -83,19 +83,31 @@ Priserna läses direkt från önskelistans sidor. Där syns aktuellt pris för v
 
 ## Datamodell
 
-Fem kärntabeller i SQLite räcker. Priser lagras i öre som heltal för att undvika avrundningsfel. Med \~1 000 produkter × 4 mätningar/dygn blir det \~1,5 miljoner rader per år, vilket SQLite klarar utan problem.
+SQLite i WAL-läge med främmande nycklar påslagna. Priser lagras i öre som heltal för att undvika avrundningsfel. Tidpunkter lagras som ISO-8601 i UTC och visas i Europe/Stockholm. Fält med fasta värden lagras som text med `CHECK`. I SQL skrivs kolumnnamnen utan å/ä/ö (`pris_öre` → `pris_ore`). Schemaversionen hålls i `PRAGMA user_version`, och `listwatch migrate` kör numrerade migreringar efter en säkerhetskopia. Med \~1 000 produkter × 4 mätningar/dygn blir det \~1,5 miljoner prisrader per år, vilket SQLite klarar utan problem.
+
+**Kärndata** (rensas aldrig av loggrensningen):
 
 | Tabell | Viktiga fält |
 | --- | --- |
-| `wishlist` | id, typ (amazon/lokal), namn, url, list\_id, standard\_procent, standard\_aktiv, senast\_synkad, status |
-| `product` | asin (unik), titel, bild\_url, url, aktiv, första\_sedd, prime\_status (prime/inte\_prime/okänd), prime\_kontrollerad |
-| `wishlist_product` | wishlist\_id, asin, tillagd, borttagen |
-| `price_point` | asin, tidpunkt, status (pris/ej\_i\_lager/saknar\_pris), pris\_öre (null om status ≠ pris), prime (Prime-status vid mättillfället: ja/nej/okänd), källa (lista/produktsida), misstänkt |
-| `alert_rule` | asin, mål\_pris\_öre, mål\_procent, ärver\_standard, lägsta\_någonsin\_notis, larm\_aktivt, senaste\_larm\_pris, senaste\_larm\_tid |
+| `wishlist` | id, typ (amazon/lokal), namn, url, list\_id (unik, null för lokal), standard\_procent, standard\_aktiv, status (ok/blockerad/privat/fel), senast\_synkad, skapad |
+| `product` | asin (nyckel), titel, bild\_url, url, aktiv, första\_sedd; Prime-cache: prime\_status (prime/inte\_prime/okänd), prime\_kontrollerad; senaste kända läge: senaste\_status, senaste\_pris\_öre, senast\_läst |
+| `wishlist_product` | wishlist\_id, asin (gemensam nyckel), tillagd, borttagen (null = finns i listan) |
+| `price_point` | asin, tidpunkt, status (pris/ej\_i\_lager/saknar\_pris), pris\_öre (null om status ≠ pris), prime (Prime-cachen vid mättillfället), källa (lista/produktsida), misstänkt, run\_id |
+| `alert_rule` | asin (nyckel; saknas rad ärvs listans standard), mål\_pris\_öre, mål\_procent, ärver\_standard, lägsta\_någonsin\_notis, larm\_aktivt, senaste\_larm\_pris, senaste\_larm\_tid (null = spärren nollställd) |
+| `settings` | nyckel, värde: Apprise-URL:er, intervall, `prime_ttl`, `prime_fresh_for_alert`, `max_product_pages_per_round`, `logg_lagringstid_dagar` (30), `notislogg_lagringstid_dagar` (365) |
 
-Dessutom en tabell `notification_log` (tid, asin, typ, meddelande, lyckad) och en enkel `settings` med Apprise-URL:er och intervall.
+`product.senaste_*` är en medveten denormalisering. Varje runda jämför mot den för att avgöra om en produkt är uppdaterad och vilka händelser som ska skrivas, utan att leta upp senaste `price_point`.
 
-En produkt som finns i flera listor lagras en gång och mäts en gång. Larmregeln gäller per produkt; ärver den listans standard används den lägsta procentnivån bland listorna produkten finns i.
+**Körlogg** (se `docs/spec-logg.md`; rensas en gång per dygn):
+
+| Tabell | Viktiga fält |
+| --- | --- |
+| `run` | id, omgång, typ (schemalagd/manuell/probe), wishlist\_id, list\_namn och list\_id (ögonblicksbild), start, slut, räknare (sidor, lästa, prisändrade, nya, borttagna, produktsidor, prime\_ändrade, larm\_skickade, larm\_misslyckade, fel), captcha (null/listsida/produktsida), resultat (ok/delvis/fel) |
+| `event` | id, run\_id (null utanför runda, t.ex. testnotis), tid, typ, asin, före, efter (råvärden som GUI:t formaterar), text |
+
+Räknarna sparas på `run`, eftersom oförändrade produkter inte loggas som händelser och "lästa" därför inte går att räkna fram. `event.asin` har ingen främmande nyckel, och produktnamnet hämtas via join. Det finns ingen separat `notification_log`. Notisloggen i Inställningar är `event` filtrerad på larm-, drift- och testnotiser (`larm_skickat`, `larm_misslyckades`, `drift_notis`, `test_notis`). Sådana händelser rensas efter `notislogg_lagringstid_dagar`, övriga händelser och rundor efter `logg_lagringstid_dagar`. När en runda rensas blir dess kvarvarande notishändelser kvar med `run_id` = null. Båda lagringstiderna går att ställa in i GUI:t.
+
+En produkt som finns i flera listor lagras en gång och mäts en gång. En körning ger en runda per lista, och rundorna delar samma `omgång`. Hittas produkten i flera listor räknas den som läst i varje runda, men `price_point` och händelser skrivs bara i den första. Larmregeln gäller per produkt; ärver den listans standard används den lägsta procentnivån bland listorna produkten finns i.
 
 ## Larmlogik
 
