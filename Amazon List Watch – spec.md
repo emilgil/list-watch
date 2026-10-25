@@ -48,14 +48,36 @@ Efter varje insamlingsrunda kör larmmotorn reglerna mot de nya mätningarna och
 
 ## Datainsamling från Amazon.se
 
-Priserna läses i första hand direkt från önskelistans sidor. Där syns aktuellt pris för varje produkt, så en runda kräver bara några tiotal förfrågningar i stället för \~1 000. Amazon har inget öppet API för önskelistor, så insamlingen bygger på att läsa HTML.
+Priserna läses direkt från önskelistans sidor. Där syns aktuellt pris för varje produkt, så en runda kräver bara några tiotal förfrågningar i stället för \~1 000. Amazon har inget öppet API för önskelistor, så insamlingen bygger på att läsa HTML.
 
-1. **Lista:** hämta listsidan och följ sidbläddringen tills alla produkter är lästa. Plocka ASIN, titel, bild-URL, pris, valuta och tillgänglighet.
-2. **Fallback per produkt:** saknas priset i listan (t.ex. "se alternativ") hämtas produktsidan `amazon.se/dp/<ASIN>`, max ett begränsat antal per runda. Lokala ASIN-bevakningar läses alltid från produktsidan.
-3. **Tolkning:** svenska prisformat ("1 299,00 kr") normaliseras till öre som heltal. Varje mätning sparas med en flagga för om erbjudandet är Prime. Visar listsidan inte Prime-status hämtas produktsidan.
-4. **Rimlighetskontroll:** ett pris under 10 % av medianen markeras som misstänkt och utlöser inget larm förrän det bekräftats vid nästa mätning.
+1. **Lista:** hämta listsidan och följ sidbläddringen tills alla produkter är lästa. Plocka ASIN, titel, bild-URL, pris och tillgänglighet. Listsidan är källan till pris i varje runda; ingen produktsida hämtas för att läsa pris. Lokala ASIN-bevakningar läses alltid från produktsidan.
+2. **Status per produkt:** varje läsning får en av tre statusar:
+   - `pris`: ett pris hittades.
+   - `ej_i_lager`: tillgänglighetsmarkering för slutsåld ("Inte tillgänglig för närvarande", "Currently unavailable", "Ej i lager" m.fl.).
+   - `saknar_pris`: varken pris eller tillgänglighetsmarkering hittades.
+
+   Probe 2026-10-25 visade att listsidan saknar markering för slutsålda produkter: de visar bara "Visa alla köpalternativ". Därför avgör produktsidan vid nästa bakgrundsuppdatering av Prime-cachen om en `saknar_pris`-produkt är `ej_i_lager`.
+3. **Prime-status (hämtning vid behov + cache):** listsidan visar *inte* Prime-status, bara produktsidan gör det. Prime-status cachas per ASIN: status (`prime` / `inte_prime` / `okänd`) och tidpunkt för senaste kontroll. Produktsidan `amazon.se/dp/<ASIN>` hämtas bara när:
+   - a) **Inför larm:** priset når larmvillkoret (målpris eller procent) och Prime-statusen är `okänd` eller äldre än `prime_fresh_for_alert`. Larmet skickas först efter kontrollen och bara om status = `prime`.
+   - b) **Bakgrundsuppdatering:** cachen är äldre än `prime_ttl`. Högst `max_product_pages_per_round` per runda, äldsta först.
+
+   Produktsidans parser läser Prime-indikator, pris, tillgänglighet och avsändare. Utloggad visar amazon.se ingen Prime-märkning, inte ens för varor som Amazon själva skickar (kontrollerat 2026-10-25). Därför gäller: **Prime-märkning eller "Avsändare: Amazon" = `prime`**, annan avsändare = `inte_prime`, ingen av delarna synlig = `okänd`. Regeln är en första approximation och kan skärpas senare. Samma väntetid (5–15 s) gäller för produktsidor som för listsidor. Vid CAPTCHA eller HTTP-fel på en produktsida avbryts produktsidehämtningarna för resten av rundan, statusen lämnas oförändrad och inga larm som kräver kontroll skickas.
+4. **Tolkning av pris:** alla prisformat normaliseras till öre som heltal. Följande varianter förekommer beroende på språkinställning:
+   - svenskt: "1 299,00 kr", "115,66 kr" (mellanslag, NBSP eller smal NBSP som tusentalsavgränsare)
+   - svenskt med valutan först: "kr217,90"
+   - engelskt: "kr1,299.00", "kr115.66"
+
+   Samma pris kan stå flera gånger på en rad ("217,90 kr kr217,90"). Parsern tar ett pris per produkt och summerar eller dubbelräknar aldrig.
+5. **Dolda felmallar:** listsidan innehåller vid varje produkt dolda felmallar ("Ett fel inträffade…", "Amazon har stött på ett fel") i `aok-hidden`/`a-hidden`-element. De ignoreras och tolkas aldrig som produktfel eller blockering.
+6. **Rimlighetskontroll:** ett pris under 10 % av medianen markeras som misstänkt och utlöser inget larm förrän det bekräftats vid nästa mätning.
 
 **Hövlighet mot Amazon:** max en förfrågan var 5–15:e sekund (slumpat), en realistisk User-Agent och `Accept-Language: sv-SE`. Vid CAPTCHA eller HTTP 503 pausas rundan med exponentiell backoff, och efter 3 blockerade rundor i följd skickas en driftnotis.
+
+| Inställning | Standard | Betydelse |
+| --- | --- | --- |
+| `prime_ttl` | 7 dagar | Prime-cache äldre än så uppdateras i bakgrunden |
+| `prime_fresh_for_alert` | 24 h | Prime-status måste vara så här färsk för att ett larm ska gå utan ny kontroll |
+| `max_product_pages_per_round` | 10 | Tak för bakgrundsuppdateringar per runda (kontroller inför larm räknas inte mot taket) |
 
 **Parser i egen modul**, med sparade HTML-exempel som testfall, så att den går snabbt att laga när Amazon ändrar sidlayouten. Insamlingen ligger bakom ett gemensamt källgränssnitt, så att fler källor (t.ex. Hagglezon) kan läggas till senare utan ändringar i larm eller GUI.
 
@@ -66,9 +88,9 @@ Fem kärntabeller i SQLite räcker. Priser lagras i öre som heltal för att und
 | Tabell | Viktiga fält |
 | --- | --- |
 | `wishlist` | id, typ (amazon/lokal), namn, url, list\_id, standard\_procent, standard\_aktiv, senast\_synkad, status |
-| `product` | asin (unik), titel, bild\_url, url, aktiv, första\_sedd |
+| `product` | asin (unik), titel, bild\_url, url, aktiv, första\_sedd, prime\_status (prime/inte\_prime/okänd), prime\_kontrollerad |
 | `wishlist_product` | wishlist\_id, asin, tillagd, borttagen |
-| `price_point` | asin, tidpunkt, pris\_öre (null = ej tillgänglig), prime (ja/nej), källa (lista/produktsida), misstänkt |
+| `price_point` | asin, tidpunkt, status (pris/ej\_i\_lager/saknar\_pris), pris\_öre (null om status ≠ pris), prime (Prime-status vid mättillfället: ja/nej/okänd), källa (lista/produktsida), misstänkt |
 | `alert_rule` | asin, mål\_pris\_öre, mål\_procent, ärver\_standard, lägsta\_någonsin\_notis, larm\_aktivt, senaste\_larm\_pris, senaste\_larm\_tid |
 
 Dessutom en tabell `notification_log` (tid, asin, typ, meddelande, lyckad) och en enkel `settings` med Apprise-URL:er och intervall.
@@ -93,6 +115,7 @@ Ett larm går när priset korsar en nivå nedåt, och sedan inte igen förrän p
 2. Fortsätter priset att ligga under nivån: ingen ny notis, utom om det sjunker minst 5 % till under senaste\_larm\_pris.
 3. Går priset över nivån igen nollställs spärren, så nästa korsning ger ny notis.
 4. Misstänkta priser (se Datainsamling) utlöser inget larm. Endast Prime-erbjudanden larmar, och referenspriset räknas bara på Prime-mätningar.
+5. Är Prime-statusen `okänd` eller äldre än `prime_fresh_for_alert` när villkoret uppfylls, hämtas produktsidan först (se Datainsamling). Larmet skickas bara om kontrollen ger `prime`. Misslyckas kontrollen (CAPTCHA, HTTP-fel) skickas inget larm i den rundan, och spärren påverkas inte.
 
 **Lägsta pris någonsin:** valfritt per produkt, går när priset understiger allt tidigare uppmätt, efter minst 30 dagars historik.
 
@@ -174,12 +197,12 @@ HTTP:         200 OK (3 sidor, 2,1 s/sida i snitt)
 CAPTCHA:      nej
 
 Produkter:    57
-  Pris läst:        54 / 57  (95 %)
-  Prime-status:     51 / 57  (89 %)
+  Pris läst:        51 / 57  (89 %)
+  Prime-status:     finns ej på listsidan (förväntat)
   Ej i lager:        3
   Saknar pris:       3  → B0C1234567, B09ABCDEF1, B08XYZ9876
 
-Produktsidor behövs per runda:  ~6  (saknat pris eller Prime-status)
+Produktsidor behövs per runda:  ~3  (saknat pris; Prime hämtas vid behov och cachas)
 
 Sparat:  /var/lib/listwatch/probe/2026-10-26_0914/
   page-1.html  page-2.html  page-3.html  report.json
@@ -187,11 +210,13 @@ Sparat:  /var/lib/listwatch/probe/2026-10-26_0914/
 Resultat: DELVIS OK (avslutskod 1)
 ```
 
-- **Avslutskod 0, allt läsbart:** listsidan räcker för pris och Prime på alla produkter.
-- **Avslutskod 1, delvis:** listan går att läsa, men vissa produkter kräver produktsidan.
+- **Avslutskod 0, allt läsbart:** listsidan räcker för pris eller tillgänglighet på alla produkter.
+- **Avslutskod 1, delvis:** listan går att läsa, men vissa produkter har status `saknar_pris` och kräver produktsidan.
 - **Avslutskod 2, blockerad eller fel:** CAPTCHA, HTTP 503, privat lista eller en sida som inte går att tolka.
 
-HTML-sidorna blir testfall för parsern. `report.json` innehåller samma siffror plus en rad per produkt (ASIN, titel, pris, Prime ja/nej). Raden **Produktsidor behövs per runda** avgör om intervall och fördröjning behöver justeras: nära 0 betyder att listsidorna räcker.
+Att Prime-status saknas på listsidan är förväntat (se Datainsamling) och påverkar inte avslutskoden. Visar en listsida ändå Prime-märkning räknas den och redovisas som "X / N".
+
+HTML-sidorna blir testfall för parsern. `report.json` innehåller samma siffror plus en rad per produkt (ASIN, titel, status, pris, Prime ja/nej/okänd). Raden **Produktsidor behövs per runda** visar hur många produkter som saknar pris: nära 0 betyder att listsidorna räcker.
 
 **Robusthet:** `set -euo pipefail`, en `trap` som skriver ut rad och kommando vid fel, och allt loggas även till `/var/log/listwatch-install.log`. Skriptet ska kunna köras flera gånger i rad utan att förstöra data eller konfiguration.
 
@@ -227,5 +252,13 @@ HTML-sidorna blir testfall för parsern. `report.json` innehåller samma siffror
 3. sidbläddringen fungerar för en lista med 50+ produkter.
 
 Sparade HTML-sidor blir testfall för parsern. Om listan inte visar Prime-status avgör det hur många produktsidor varje runda kräver.
+
+**Resultat av probe 2026-10-25** (lista "Hemmet", 55 produkter, 6 sidor, ingen CAPTCHA):
+
+- Sidbläddringen fungerar.
+- Pris lästes för 44 av 55 produkter. De övriga 11 visar bara "Visa alla köpalternativ", och minst en av dem var "Currently unavailable" på produktsidan.
+- Listsidan visar ingen Prime-status. Därför hämtas Prime vid behov och cachas (se Datainsamling).
+- Amazon kan visa priser i engelskt format ("kr115.66") beroende på språkinställning.
+- Sparade sidor är korrekt UTF-8; trasiga tecken vid visning beror på webbläsaren.
 
 **Fas 2 (idéer):** export till CSV, veckosammanfattning via Apprise, fler källor som Hagglezon.

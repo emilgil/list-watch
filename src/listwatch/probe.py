@@ -8,7 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .parser import WishlistItem, is_captcha, parse_wishlist_page
+from .parser import (
+    STATUS_MISSING_PRICE,
+    STATUS_OUT_OF_STOCK,
+    WishlistItem,
+    is_captcha,
+    parse_wishlist_page,
+)
 
 MAX_PAGES = 50
 DELAY_RANGE = (5, 15)
@@ -41,10 +47,6 @@ class ProbeReport:
     saved_dir: str | None = None
     started: str = ""
     items: list[dict] = field(default_factory=list)
-
-
-def _needs_product_page(i: WishlistItem) -> bool:
-    return i.in_stock and (i.price_ore is None or i.prime is None)
 
 
 def run_probe(
@@ -89,11 +91,13 @@ def run_probe(
     report.products = len(items)
     report.price_read = sum(i.price_ore is not None for i in items)
     report.prime_read = sum(i.prime is True for i in items)
-    report.out_of_stock = sum(not i.in_stock for i in items)
-    report.missing_price = [i.asin for i in items if i.in_stock and i.price_ore is None]
-    report.product_pages_needed = sum(_needs_product_page(i) for i in items)
+    report.out_of_stock = sum(i.status == STATUS_OUT_OF_STOCK for i in items)
+    report.missing_price = [i.asin for i in items if i.status == STATUS_MISSING_PRICE]
+    # Prime is never on the list page; it is fetched on demand and cached, so only
+    # missing prices need a product page.
+    report.product_pages_needed = len(report.missing_price)
     report.items = [
-        {"asin": i.asin, "title": i.title, "price_ore": i.price_ore, "prime": i.prime}
+        {"asin": i.asin, "title": i.title, "status": i.status, "price_ore": i.price_ore, "prime": i.prime}
         for i in items
     ]
     if blocked or not items:
@@ -111,6 +115,11 @@ def _pct(n: int, total: int) -> str:
 
 
 def render_report(r: ProbeReport) -> str:
+    prime = (
+        f"{r.prime_read} / {r.products}  ({_pct(r.prime_read, r.products)})"
+        if r.prime_read
+        else "finns ej på listsidan (förväntat)"
+    )
     http = f"{r.http_status} {'OK' if r.http_status == 200 else ''}".strip() if r.http_status else "ingen respons"
     lines = [
         f"List Watch – probe  {r.started}",
@@ -120,12 +129,12 @@ def render_report(r: ProbeReport) -> str:
         "",
         f"Produkter:    {r.products}",
         f"  Pris läst:        {r.price_read} / {r.products}  ({_pct(r.price_read, r.products)})",
-        f"  Prime-status:     {r.prime_read} / {r.products}  ({_pct(r.prime_read, r.products)})",
+        f"  Prime-status:     {prime}",
         f"  Ej i lager:        {r.out_of_stock}",
         f"  Saknar pris:       {len(r.missing_price)}"
         + (f"  → {', '.join(r.missing_price)}" if r.missing_price else ""),
         "",
-        f"Produktsidor behövs per runda:  ~{r.product_pages_needed}  (saknat pris eller Prime-status)",
+        f"Produktsidor behövs per runda:  ~{r.product_pages_needed}  (saknat pris; Prime hämtas vid behov och cachas)",
         "",
         f"Sparat:  {r.saved_dir}/",
         "",
