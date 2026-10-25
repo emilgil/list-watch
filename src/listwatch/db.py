@@ -34,6 +34,11 @@ def _migrations() -> list[tuple[int, str]]:
     return sorted(found)
 
 
+def latest_version() -> int:
+    migrations = _migrations()
+    return migrations[-1][0] if migrations else 0
+
+
 def schema_version(conn: sqlite3.Connection) -> int:
     return conn.execute("PRAGMA user_version").fetchone()[0]
 
@@ -77,11 +82,22 @@ def migrate(path: Path | str, now: Callable[[], datetime] = datetime.now) -> Mig
         conn.close()
 
 
-def setting_int(conn: sqlite3.Connection, key: str) -> int:
+def setting(conn: sqlite3.Connection, key: str) -> str:
     row = conn.execute("SELECT varde FROM settings WHERE nyckel = ?", (key,)).fetchone()
     if row is None:
         raise KeyError(key)
-    return int(row["varde"])
+    return row["varde"]
+
+
+def setting_int(conn: sqlite3.Connection, key: str) -> int:
+    return int(setting(conn, key))
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: object) -> None:
+    conn.execute(
+        "INSERT INTO settings (nyckel, varde) VALUES (?, ?) ON CONFLICT (nyckel) DO UPDATE SET varde = excluded.varde",
+        (key, str(value)),
+    )
 
 
 @dataclass

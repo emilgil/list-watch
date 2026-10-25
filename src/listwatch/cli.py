@@ -4,7 +4,8 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .db import migrate
+from . import scheduler
+from .db import connect, latest_version, migrate, schema_version
 from .fetcher import make_fetcher
 from .probe import render_report, run_probe
 
@@ -39,6 +40,30 @@ def _migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _collect(args: argparse.Namespace) -> int:
+    conn = connect(args.db)
+    try:
+        if schema_version(conn) < latest_version():
+            print("Fel: databasen är inte uppgraderad, kör listwatch migrate först", file=sys.stderr)
+            return 2
+        res = scheduler.run_omgang(conn, scheduler.amazon_source(), typ="manuell")
+        rows = [
+            conn.execute("SELECT list_namn, lasta, larm_skickade, resultat FROM run WHERE id = ?", (i,)).fetchone()
+            for i in res
+        ]
+    finally:
+        conn.close()
+    print(f"Omgång {res.omgang}")
+    for r in rows:
+        print(f"  {r['list_namn']}: {r['resultat'].upper()}, {r['lasta']} lästa, {r['larm_skickade']} larm")
+    if res.blocked:
+        print("  Blockerad av Amazon (CAPTCHA eller HTTP 503)")
+    results = {r["resultat"] for r in rows}
+    if res.blocked or "fel" in results:
+        return 2
+    return 1 if "delvis" in results else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="listwatch")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -49,6 +74,9 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("migrate", help="Skapa eller uppgradera databasschemat")
     m.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
     m.set_defaults(func=_migrate)
+    c = sub.add_parser("collect", help="Kör en insamlingsomgång nu (manuell)")
+    c.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
+    c.set_defaults(func=_collect)
     args = parser.parse_args(argv)
     return args.func(args)
 

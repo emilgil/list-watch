@@ -8,6 +8,8 @@ Rules (spec "Datainsamling" and docs/spec-logg.md):
 - Product pages are fetched for stale Prime caches (oldest first, capped per omgång) and
   always for local ASIN watches. CAPTCHA or HTTP error on a product page stops product
   pages for the rest of the omgång.
+- CAPTCHA or HTTP 503 on a list page stops the whole omgång (remaining lists get no run),
+  and the omgång counts as blocked for the scheduler's backoff.
 - After each list is stored its new measurements are judged by `alerts`. An alert whose
   Prime status is unknown or older than prime_fresh_for_alert waits for a product page
   check (not counted against the cap); it is sent only if Prime. senaste_larm_pris is set
@@ -16,6 +18,7 @@ Rules (spec "Datainsamling" and docs/spec-logg.md):
 import sqlite3
 import statistics
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable
@@ -47,6 +50,18 @@ class _Omgang:
     notifier: Notifier
     seen: set[str] = field(default_factory=set)
     product_pages_blocked: bool = False
+    blocked: bool = False  # CAPTCHA or HTTP 503 anywhere: back off
+    list_blocked: bool = False  # stop reading further lists
+
+
+@dataclass
+class CollectResult:
+    omgang: int
+    run_ids: list[int]
+    blocked: bool
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(self.run_ids)
 
 
 class _Run:
@@ -107,8 +122,8 @@ def collect(
     typ: str = "schemalagd",
     now: Clock = _utcnow,
     notifier: Notifier | None = None,
-) -> list[int]:
-    """Read every list once and send alerts. Returns the run ids, one per list."""
+) -> CollectResult:
+    """Read every list once and send alerts. Iterating the result gives the run ids."""
     omgang = _Omgang(
         id=conn.execute("SELECT coalesce(max(omgang), 0) + 1 FROM run").fetchone()[0],
         product_pages_left=setting_int(conn, "max_product_pages_per_round"),
@@ -125,7 +140,9 @@ def collect(
             _collect_list(conn, source, run, wl, omgang)
         run.finish(run.resultat())
         run_ids.append(run.id)
-    return run_ids
+        if omgang.list_blocked:
+            break
+    return CollectResult(omgang=omgang.id, run_ids=run_ids, blocked=omgang.blocked)
 
 
 def _collect_list(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqlite3.Row, omgang: _Omgang) -> None:
@@ -140,7 +157,10 @@ def _collect_list(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqlit
             run.error("http_fel", text=f"listsida: HTTP {read.http_status or 'inget svar'}")
         else:
             run.error("parsningsfel", text="inga produkter hittades på listsidan")
-        status = "blockerad" if read.captcha or read.http_status == 503 else "fel"
+        blocked = read.captcha or read.http_status == 503
+        omgang.list_blocked = bool(blocked)
+        omgang.blocked = omgang.blocked or omgang.list_blocked
+        status = "blockerad" if blocked else "fel"
         conn.execute("UPDATE wishlist SET status = ? WHERE id = ?", (status, wl["id"]))
         return
 
@@ -271,6 +291,7 @@ def _read_product(conn: sqlite3.Connection, source: Source, run: _Run, asin: str
     run.count["produktsidor"] += 1
     if res.captcha or res.page is None:
         omgang.product_pages_blocked = True
+        omgang.blocked = omgang.blocked or res.captcha or res.http_status == 503
         if res.captcha:
             run.captcha = run.captcha or "produktsida"
             run.error("captcha", asin, text="produktsida")

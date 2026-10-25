@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from listwatch import cli, db
-from listwatch.db import connect, migrate, purge_logs, schema_version, utc_iso
+from listwatch.db import connect, latest_version, migrate, purge_logs, schema_version, utc_iso
+
+LATEST = latest_version()
 
 NOW = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
 T = utc_iso(NOW)
@@ -26,7 +28,8 @@ def add_product(conn, asin="B0C93G2M83"):
 def test_fresh_migrate_creates_schema_without_backup(tmp_path):
     path = tmp_path / "sub" / "listwatch.db"
     res = migrate(path)
-    assert (res.from_version, res.to_version, res.backup) == (0, 1, None)
+    assert LATEST >= 2
+    assert (res.from_version, res.to_version, res.backup) == (0, LATEST, None)
     c = connect(path)
     tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert tables == {
@@ -42,30 +45,30 @@ def test_rerun_is_a_no_op(tmp_path):
     path = tmp_path / "listwatch.db"
     migrate(path)
     res = migrate(path)
-    assert (res.from_version, res.to_version, res.backup) == (1, 1, None)
+    assert (res.from_version, res.to_version, res.backup) == (LATEST, LATEST, None)
 
 
 def test_upgrade_backs_up_first(tmp_path, monkeypatch):
     path = tmp_path / "listwatch.db"
     migrate(path)
     real = db._migrations()
-    monkeypatch.setattr(db, "_migrations", lambda: real + [(2, "CREATE TABLE extra (x);")])
+    monkeypatch.setattr(db, "_migrations", lambda: real + [(LATEST + 1, "CREATE TABLE extra (x);")])
     res = migrate(path, now=lambda: datetime(2026, 10, 25, 16, 30))
-    assert (res.from_version, res.to_version) == (1, 2)
-    assert res.backup.name == "listwatch.v1-20261025-163000.bak"
+    assert (res.from_version, res.to_version) == (LATEST, LATEST + 1)
+    assert res.backup.name == f"listwatch.v{LATEST}-20261025-163000.bak"
     backup = sqlite3.connect(res.backup)
-    assert backup.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert backup.execute("PRAGMA user_version").fetchone()[0] == LATEST
 
 
 def test_failed_migration_rolls_back(tmp_path, monkeypatch):
     path = tmp_path / "listwatch.db"
     migrate(path)
     real = db._migrations()
-    monkeypatch.setattr(db, "_migrations", lambda: real + [(2, "CREATE TABLE ok (x); SELEKT;")])
+    monkeypatch.setattr(db, "_migrations", lambda: real + [(LATEST + 1, "CREATE TABLE ok (x); SELEKT;")])
     with pytest.raises(sqlite3.Error):
         migrate(path)
     c = connect(path)
-    assert schema_version(c) == 1
+    assert schema_version(c) == LATEST
     assert c.execute("SELECT count(*) FROM sqlite_master WHERE name = 'ok'").fetchone()[0] == 0
 
 
@@ -146,6 +149,6 @@ def test_purge_follows_retention_setting(conn):
 def test_cli_migrate(tmp_path, capsys):
     path = tmp_path / "listwatch.db"
     assert cli.main(["migrate", "--db", str(path)]) == 0
-    assert "v0 → v1" in capsys.readouterr().out
+    assert f"v0 → v{LATEST}" in capsys.readouterr().out
     assert cli.main(["migrate", "--db", str(path)]) == 0
-    assert "redan aktuellt (v1)" in capsys.readouterr().out
+    assert f"redan aktuellt (v{LATEST})" in capsys.readouterr().out

@@ -353,3 +353,33 @@ def test_amazon_source_against_real_fixtures(conn):
     assert (r["lasta"], r["produktsidor"], r["resultat"]) == (3, 3, "delvis")
     assert product(conn, "B07V5J9RNV")["prime_status"] == "prime"
     assert product(conn, "B003YT2HLE")["senaste_status"] == "ej_i_lager"
+
+
+def test_list_captcha_stops_the_omgang_and_marks_it_blocked(conn):
+    no_prime_refresh(conn)
+    add_list(conn, "L1")
+    add_list(conn, "L2")
+    src = FakeSource()
+    src.lists["L1"] = ListRead(http_status=503)
+    src.lists["L2"] = ok(item("A000000001", 100))
+    res = collect(conn, src, now=Clock())
+    assert res.blocked and len(res.run_ids) == 1
+
+
+def test_product_page_captcha_marks_the_omgang_blocked(conn):
+    add_list(conn)
+    src = FakeSource()
+    src.lists["L1"] = ok(item("A000000001", 100))
+    src.products["A000000001"] = ProductRead(200, captcha=True)
+    assert collect(conn, src, now=Clock()).blocked
+
+
+def test_404_on_a_list_is_not_blocking(conn):
+    no_prime_refresh(conn)
+    add_list(conn, "L1")
+    add_list(conn, "L2")
+    src = FakeSource()
+    src.lists["L1"] = ListRead(http_status=404)
+    src.lists["L2"] = ok(item("A000000001", 100))
+    res = collect(conn, src, now=Clock())
+    assert not res.blocked and len(res.run_ids) == 2
