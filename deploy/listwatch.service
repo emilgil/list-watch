@@ -1,0 +1,21 @@
+[Unit]
+Description=Amazon List Watch (scheduler, collector, alerts and web UI)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=listwatch
+Group=listwatch
+EnvironmentFile=/etc/listwatch/listwatch.env
+ExecStart=/opt/listwatch/.venv/bin/listwatch serve
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/listwatch
+
+[Install]
+WantedBy=multi-user.target

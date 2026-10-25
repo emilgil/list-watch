@@ -1,0 +1,14 @@
+[Unit]
+Description=Amazon List Watch daily database backup
+
+[Service]
+Type=oneshot
+User=listwatch
+Group=listwatch
+EnvironmentFile=/etc/listwatch/listwatch.env
+ExecStart=/opt/listwatch/.venv/bin/listwatch backup --keep 14
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/listwatch

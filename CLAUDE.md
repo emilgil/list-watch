@@ -37,6 +37,8 @@ Schema lives in `src/listwatch/migrations/NNNN_*.sql`, applied by `listwatch mig
 
 ## Required repo layout (per the spec's install section)
 
+Implemented: `install.sh` (root, Debian 13 amd64/arm64; stops the service around `migrate`, runs CLI commands as `listwatch` via `runuser`), `requirements.lock` (runtime deps from a clean venv: `pip install .` then `pip freeze --exclude listwatch`; installed first, then the package with `--no-deps`), `deploy/listwatch.service`, `deploy/listwatch-backup.{service,timer}` (03:00 daily, 14 copies), `deploy/listwatch.env.example`. Not yet tested on a fresh LXC.
+
 `install.sh` at repo root; a locked dependency file; a Python package with CLI subcommands `listwatch serve | migrate | probe <url> | backup`; a `/health` endpoint; `deploy/` with `listwatch.service` and `listwatch-backup` timer/service files. Paths on the target: code `/opt/listwatch`, data `/var/lib/listwatch`, config `/etc/listwatch/listwatch.env` (created only if missing, never overwritten), user `listwatch`.
 
 `install.sh` must be idempotent (re-run = update: `git fetch` + `reset --hard`, `migrate` with DB backup first), use `set -euo pipefail` with an error trap, and log to `/var/log/listwatch-install.log`.
