@@ -52,6 +52,19 @@ def test_split_shipper_and_seller_uses_shipper():
     assert parse_product_page(_page(buybox)).prime is True
 
 
+def test_real_product_shipped_by_amazon_for_a_third_party_seller():
+    # Labelled "Skickas från: Amazon" + "Säljs av: <seller>" instead of "Avsändare"
+    p = parse_product_page(load("real_product_B07H9GQTDK.html"))
+    assert (p.price_ore, p.status) == (152387, STATUS_PRICE)
+    assert (p.ships_from_amazon, p.prime) == (True, True)
+
+
+def test_skickas_fran_third_party_means_not_prime():
+    buybox = PRICE + _merchant("Skickas från", "Någon Butik AB").replace("merchant-info", "fulfiller-info")
+    buybox += _merchant("Säljs av", "Någon Butik AB")
+    assert parse_product_page(_page(buybox)).prime is False
+
+
 def test_third_party_shipper_means_not_prime():
     p = parse_product_page(_page(PRICE + _merchant("Avsändare / Säljare", "Någon Butik AB")))
     assert (p.ships_from_amazon, p.prime) == (False, False)

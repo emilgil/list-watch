@@ -130,10 +130,14 @@ def parse_wishlist_page(html: str) -> WishlistPage:
 
 
 def _ships_from_amazon(tree: HTMLParser) -> bool | None:
-    """Read 'Avsändare' (or combined 'Avsändare / Säljare') from the buy box offer details."""
+    """Read the shipper from the buy box offer details.
+
+    Labelled 'Avsändare' (or combined 'Avsändare / Säljare') or, when Amazon ships for a
+    third-party seller, 'Skickas från' next to a separate 'Säljs av'.
+    """
     for label in tree.css(".offer-display-feature-label[offer-display-feature-name]"):
         text = label.text().lower()
-        if "avsändare" not in text and "ships from" not in text:
+        if not any(k in text for k in ("avsändare", "skickas från", "ships from")):
             continue
         name = label.attributes["offer-display-feature-name"]
         value = tree.css_first(f'.offer-display-feature-text[offer-display-feature-name="{name}"]')
