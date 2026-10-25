@@ -171,6 +171,8 @@ def _collect_list(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqlit
         conn.execute(
             "UPDATE wishlist SET status = 'ok', senast_synkad = ? WHERE id = ?", (utc_iso(run.now()), wl["id"])
         )
+        if read.title and wl["namn"] == wl["list_id"]:  # added without a name: take Amazon's
+            conn.execute("UPDATE wishlist SET namn = ? WHERE id = ?", (read.title, wl["id"]))
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")

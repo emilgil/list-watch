@@ -1,4 +1,5 @@
 """amazon.se as a Source: paginated wishlist pages and product pages."""
+import re
 from typing import Callable
 
 from .fetcher import Fetch
@@ -6,6 +7,12 @@ from .parser import BASE_URL, is_captcha, parse_product_page, parse_wishlist_pag
 from .source import ListRead, ProductRead
 
 MAX_PAGES = 50
+_LIST_ID = re.compile(r"/wishlist/ls/([A-Z0-9]+)")
+
+
+def list_id_from_url(url: str) -> str | None:
+    m = _LIST_ID.search(url)
+    return m.group(1) if m else None
 
 
 def read_wishlist(

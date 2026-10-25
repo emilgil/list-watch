@@ -1,19 +1,16 @@
 """Step 0: fetch a wishlist the way the service will and report what is readable."""
 import json
-import re
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .amazon import read_wishlist
+from .amazon import list_id_from_url, read_wishlist
 from .fetcher import FetchResult, polite
 from .parser import STATUS_MISSING_PRICE, STATUS_OUT_OF_STOCK
 
 __all__ = ["FetchResult", "ProbeReport", "render_report", "run_probe"]
-
-_LIST_ID = re.compile(r"/wishlist/ls/([A-Z0-9]+)")
 
 @dataclass
 class ProbeReport:
@@ -45,8 +42,7 @@ def run_probe(
 ) -> ProbeReport:
     started = now()
     report = ProbeReport(url=url, started=started.strftime("%Y-%m-%d %H:%M"))
-    m = _LIST_ID.search(url)
-    report.list_id = m.group(1) if m else None
+    report.list_id = list_id_from_url(url)
     saved = Path(out_dir) / started.strftime("%Y-%m-%d_%H%M")
     saved.mkdir(parents=True, exist_ok=True)
     report.saved_dir = str(saved)
