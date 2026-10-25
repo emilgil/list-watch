@@ -200,7 +200,7 @@ def test_cli_collect(db_path, conn, monkeypatch, capsys):
     add_list(conn)
     src = FakeSource()
     src.lists["L1"] = ok(item("A000000001", 100))
-    monkeypatch.setattr(scheduler, "amazon_source", lambda: src)
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None: src)
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     assert cli.main(["collect", "--db", str(db_path)]) == 0
     out = capsys.readouterr().out
@@ -212,7 +212,7 @@ def test_cli_collect_blocked_exits_2(db_path, conn, monkeypatch, capsys):
     add_list(conn)
     src = FakeSource()
     src.lists["L1"] = ListRead(http_status=503)
-    monkeypatch.setattr(scheduler, "amazon_source", lambda: src)
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None: src)
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     assert cli.main(["collect", "--db", str(db_path)]) == 2
     assert "Blockerad" in capsys.readouterr().out
@@ -221,3 +221,50 @@ def test_cli_collect_blocked_exits_2(db_path, conn, monkeypatch, capsys):
 def test_cli_collect_requires_migrated_db(tmp_path, capsys):
     assert cli.main(["collect", "--db", str(tmp_path / "new.db")]) == 2
     assert "listwatch migrate" in capsys.readouterr().err
+
+
+def test_cli_collect_verbose_prints_each_item(db_path, conn, monkeypatch, capsys):
+    add_list(conn)
+    src = FakeSource()
+    src.lists["L1"] = ok(item("A000000001", 129900, title="Kaffekvarn"), item("A000000002"))
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None: src)
+    monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
+    cli.main(["collect", "--db", str(db_path), "--verbose"])
+    out = capsys.readouterr().out
+    assert "L1:\n" in out
+    lines = [" ".join(l.split()) for l in out.splitlines()]
+    assert "A000000001 1 299 kr Kaffekvarn [ny]" in lines
+    assert "A000000002 saknar pris A000000002 [ny]" in lines
+    assert "A000000001 produktsida (bakgrund): okänd" in lines
+
+
+def test_cli_collect_is_quiet_without_verbose(db_path, conn, monkeypatch, capsys):
+    add_list(conn)
+    src = FakeSource()
+    src.lists["L1"] = ok(item("A000000001", 100))
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None: src)
+    monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
+    cli.main(["collect", "--db", str(db_path)])
+    assert "A000000001" not in capsys.readouterr().out
+
+
+def test_verbose_notes_price_change_and_fetches(conn):
+    add_list(conn)
+    src = FakeSource()
+    src.lists["L1"] = ok(item("A000000001", 10000))
+    clock = Clock()
+    run_omgang(conn, src, now=clock, notifier=FakeNotifier())
+    src.lists["L1"] = ok(item("A000000001", 9000))
+    lines = []
+    run_omgang(conn, src, now=clock, notifier=FakeNotifier(), progress=lines.append)
+    assert any("90 kr" in l and "[var 100 kr]" in l for l in lines)
+
+
+def test_amazon_source_reports_each_fetch(monkeypatch):
+    from listwatch.fetcher import FetchResult
+
+    monkeypatch.setattr(scheduler, "make_fetcher", lambda: lambda url: FetchResult(404, "", 0.0))
+    monkeypatch.setattr(scheduler, "polite", lambda f: f)
+    urls = []
+    scheduler.amazon_source(urls.append).read_product("B0C93G2M83")
+    assert urls == ["https://www.amazon.se/dp/B0C93G2M83"]

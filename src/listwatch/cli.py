@@ -91,7 +91,9 @@ def _collect(args: argparse.Namespace) -> int:
     try:
         if _needs_migrate(conn):
             return 2
-        res = scheduler.run_omgang(conn, scheduler.amazon_source(), typ="manuell")
+        say = (lambda line: print(line, flush=True)) if args.verbose else None
+        fetched = (lambda url: say(f"  hämtar {url.removeprefix(BASE_URL)}")) if say else None
+        res = scheduler.run_omgang(conn, scheduler.amazon_source(fetched), typ="manuell", progress=say)
         rows = [
             conn.execute("SELECT list_namn, lasta, larm_skickade, resultat FROM run WHERE id = ?", (i,)).fetchone()
             for i in res
@@ -127,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     a.set_defaults(func=_add_list)
     c = sub.add_parser("collect", help="Kör en insamlingsomgång nu (manuell)")
     c.add_argument("--db", type=Path, default=DEFAULT_DB, help="sökväg till SQLite-databasen")
+    c.add_argument("-v", "--verbose", action="store_true", help="skriv löpande en rad per listpost och hämtad sida")
     c.set_defaults(func=_collect)
     args = parser.parse_args(argv)
     return args.func(args)

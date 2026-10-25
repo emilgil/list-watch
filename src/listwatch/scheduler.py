@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import Callable
 
 from .amazon import AmazonSource
-from .collector import CollectResult, collect
+from .collector import CollectResult, Progress, collect
 from .db import connect, purge_logs, set_setting, setting, setting_int, utc_iso
-from .fetcher import make_fetcher, polite
+from .fetcher import Fetch, FetchResult, make_fetcher, polite
 from .notify import Notifier, notifier_from_settings
 from .source import Source
 
@@ -49,9 +49,20 @@ def _parse_utc(value: str) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def amazon_source() -> Source:
-    """A fresh polite source per omgång, so its first request is not delayed."""
-    return AmazonSource(polite(make_fetcher()))
+def amazon_source(on_fetch: Progress | None = None) -> Source:
+    """A fresh polite source per omgång, so its first request is not delayed.
+
+    `on_fetch` gets each URL right before it is requested (after the politeness delay).
+    """
+    fetch: Fetch = make_fetcher()
+    if on_fetch:
+        inner = fetch
+
+        def fetch(url: str) -> FetchResult:
+            on_fetch(url)
+            return inner(url)
+
+    return AmazonSource(polite(fetch))
 
 
 def interval(conn: sqlite3.Connection, now: datetime) -> timedelta:
@@ -92,9 +103,10 @@ def run_omgang(
     typ: str = "schemalagd",
     now: Clock = _utcnow,
     notifier: Notifier | None = None,
+    progress: Progress | None = None,
 ) -> CollectResult:
     notifier = notifier or notifier_from_settings(conn)
-    res = collect(conn, source, typ=typ, now=now, notifier=notifier)
+    res = collect(conn, source, typ=typ, now=now, notifier=notifier, progress=progress)
     after_omgang(conn, res, now(), notifier)
     return res
 
