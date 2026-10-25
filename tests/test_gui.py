@@ -105,9 +105,10 @@ def test_overview_rows_compute_level(conn):
 def test_alert_toggle(client, conn):
     seed(conn)
     r = client.post(f"/produkt/{A}/larm")
-    assert "Larm: av" in r.text
+    assert "Larm av" in text(r.text) and 'class="actions"' in r.text  # status text swapped together
     assert conn.execute("SELECT larm_aktivt FROM alert_rule WHERE asin = ?", (A,)).fetchone()[0] == 0
-    assert "Larm: på" in client.post(f"/produkt/{A}/larm").text
+    r = client.post(f"/produkt/{A}/larm")
+    assert "Larm: på" in r.text and "Bevakas" in text(r.text)
     assert client.post("/produkt/B999999999/larm").status_code == 404
 
 

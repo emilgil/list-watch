@@ -1,0 +1,13 @@
+<div class="actions">
+  {% set st = r.larm_status %}
+  <span class="small {{ 'ok' if st == 'larmat' else 'vantar' if st == 'vantar' else 'muted' }}">
+    {% if st == "larmat" %}Larmat vid {{ r.level.rule.last_alert_ore | kr }}
+    {% elif st == "ingen_regel" %}Ingen larmregel
+    {% elif st == "vantar" %}Väntar på historik
+    {% elif st == "av" %}Larm av
+    {% else %}Bevakas{% endif %}
+  </span>
+  <button class="small" hx-post="/produkt/{{ r.asin }}/larm" hx-target="closest .actions" hx-swap="outerHTML"
+          aria-pressed="{{ 'true' if r.level.rule.active else 'false' }}"
+          title="{{ 'Klicka för att stänga av larm för produkten' if r.level.rule.active else 'Klicka för att slå på larm för produkten' }}">Larm: {{ "på" if r.level.rule.active else "av" }}</button>
+</div>

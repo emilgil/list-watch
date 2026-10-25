@@ -210,10 +210,10 @@ def create_app(
                    ON CONFLICT (asin) DO UPDATE SET larm_aktivt = 1 - larm_aktivt""",
                 (asin,),
             )
-            active = conn.execute("SELECT larm_aktivt FROM alert_rule WHERE asin = ?", (asin,)).fetchone()[0]
+            row = webdata.overview_row(conn, asin, now())
         finally:
             conn.close()
-        return templates.TemplateResponse(request, "_alert_toggle.html", {"asin": asin, "active": bool(active)})
+        return templates.TemplateResponse(request, "_alert_actions.html", {"r": row})
 
     # Produkt --------------------------------------------------------------------------
 

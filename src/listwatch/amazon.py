@@ -36,6 +36,7 @@ def read_wishlist(
         page = parse_wishlist_page(res.html)
         read.title = read.title or page.title
         read.items.extend(page.items)
+        read.unparsed += page.unparsed
         next_url = page.next_url
     return read
 

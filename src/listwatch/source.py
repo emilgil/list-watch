@@ -13,6 +13,7 @@ class ListRead:
     http_status: int | None = None
     captcha: bool = False
     seconds: list[float] = field(default_factory=list)
+    unparsed: int = 0  # list items the parser could not read
 
     @property
     def error(self) -> str | None:

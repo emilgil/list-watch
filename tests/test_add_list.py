@@ -121,7 +121,7 @@ def test_remove_list_keeps_history_and_shared_products(db_path, monkeypatch, cap
         aktiv = dict(c.execute("SELECT asin, aktiv FROM product").fetchall())
         assert aktiv == {"A000000001": 1, "A000000002": 0}
         assert c.execute("SELECT count(*) FROM price_point").fetchone()[0] == 2
-        assert c.execute("SELECT list_namn FROM run ORDER BY id").fetchone()[0] == "3EWS08VXURE1W"
+        assert c.execute("SELECT list_namn FROM run ORDER BY id").fetchone()[0] == "L"  # Amazon's title
     finally:
         c.close()
 

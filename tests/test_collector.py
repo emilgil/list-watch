@@ -93,7 +93,7 @@ def test_first_run_imports_products_and_logs_run(conn):
     [run_id] = collect(conn, src, now=Clock())
 
     r = run_row(conn, run_id)
-    assert (r["omgang"], r["typ"], r["wishlist_id"], r["list_namn"]) == (1, "schemalagd", wl, "L1")
+    assert (r["omgang"], r["typ"], r["wishlist_id"], r["list_namn"]) == (1, "schemalagd", wl, "L")  # took Amazon's title
     assert (r["sidor"], r["lasta"], r["nya"], r["prisandrade"], r["fel"]) == (1, 2, 2, 0, 0)
     assert r["resultat"] == "delvis"  # one product lacks a price
     assert events(conn, run_id) == [
@@ -201,8 +201,9 @@ def test_list_captcha_fails_the_run_without_touching_membership(conn):
     "read, event, status",
     [
         (ListRead(http_status=503), "http_fel", "blockerad"),
-        (ListRead(http_status=404), "http_fel", "fel"),
-        (ListRead(http_status=200, pages=1), "parsningsfel", "fel"),
+        (ListRead(http_status=500), "http_fel", "fel"),
+        (ListRead(http_status=404), "http_fel", "privat"),
+        (ListRead(http_status=200, pages=1), "parsningsfel", "privat"),
     ],
 )
 def test_list_errors(conn, read, event, status):

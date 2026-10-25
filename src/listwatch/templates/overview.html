@@ -65,17 +65,7 @@
         {% else %}ingen referens än{% endif %}
       </div>
     </div>
-    <div class="actions">
-      {% set st = r.larm_status %}
-      <span class="small {{ 'ok' if st == 'larmat' else 'vantar' if st == 'vantar' else 'muted' }}">
-        {% if st == "larmat" %}Larmat vid {{ r.level.rule.last_alert_ore | kr }}
-        {% elif st == "ingen_regel" %}Ingen larmregel
-        {% elif st == "vantar" %}Väntar på historik
-        {% elif st == "av" %}Larm av
-        {% else %}Bevakas{% endif %}
-      </span>
-      {% with asin = r.asin, active = r.level.rule.active %}{% include "_alert_toggle.html" %}{% endwith %}
-    </div>
+    {% include "_alert_actions.html" %}
   </div>
 {% endfor %}
 </div>

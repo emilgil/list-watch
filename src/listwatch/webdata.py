@@ -88,29 +88,37 @@ def _trend(conn: sqlite3.Connection, asin: str, price: int | None, now: datetime
     return "ned" if price < row[0] else "upp" if price > row[0] else "lika"
 
 
-def overview(conn: sqlite3.Connection, now: datetime, lista: int | None = None, sort: str = "rabatt") -> list[OverviewRow]:
-    sql = """SELECT p.*, group_concat(w.namn, ', ') AS listor FROM product p
+_OVERVIEW_SQL = """SELECT p.*, group_concat(w.namn, ', ') AS listor FROM product p
              JOIN wishlist_product wp ON wp.asin = p.asin AND wp.borttagen IS NULL
              JOIN wishlist w ON w.id = wp.wishlist_id
              WHERE p.aktiv = 1"""
+
+
+def _row(conn: sqlite3.Connection, p: sqlite3.Row, now: datetime) -> OverviewRow:
+    price = p["senaste_pris_ore"] if p["senaste_status"] == "pris" else None
+    lv = level_for(conn, p["asin"], now)
+    ref = lv.reference.median_ore if lv.reference else None
+    return OverviewRow(
+        asin=p["asin"], titel=p["titel"] or p["asin"], bild_url=p["bild_url"], url=p["url"],
+        status=p["senaste_status"], pris_ore=price, level=lv,
+        rabatt=(1 - price / ref) * 100 if price is not None and ref else None,
+        trend=_trend(conn, p["asin"], price, now), prime=p["prime_status"],
+        lists=(p["listor"] or "").split(", "),
+    )
+
+
+def overview_row(conn: sqlite3.Connection, asin: str, now: datetime) -> OverviewRow | None:
+    p = conn.execute(_OVERVIEW_SQL + " AND p.asin = ? GROUP BY p.asin", (asin,)).fetchone()
+    return _row(conn, p, now) if p else None
+
+
+def overview(conn: sqlite3.Connection, now: datetime, lista: int | None = None, sort: str = "rabatt") -> list[OverviewRow]:
+    sql = _OVERVIEW_SQL
     params: tuple = ()
     if lista is not None:
         sql += " AND p.asin IN (SELECT asin FROM wishlist_product WHERE wishlist_id = ? AND borttagen IS NULL)"
         params = (lista,)
-    rows = []
-    for p in conn.execute(sql + " GROUP BY p.asin", params).fetchall():
-        price = p["senaste_pris_ore"] if p["senaste_status"] == "pris" else None
-        lv = level_for(conn, p["asin"], now)
-        ref = lv.reference.median_ore if lv.reference else None
-        rows.append(
-            OverviewRow(
-                asin=p["asin"], titel=p["titel"] or p["asin"], bild_url=p["bild_url"], url=p["url"],
-                status=p["senaste_status"], pris_ore=price, level=lv,
-                rabatt=(1 - price / ref) * 100 if price is not None and ref else None,
-                trend=_trend(conn, p["asin"], price, now), prime=p["prime_status"],
-                lists=(p["listor"] or "").split(", "),
-            )
-        )
+    rows = [_row(conn, p, now) for p in conn.execute(sql + " GROUP BY p.asin", params).fetchall()]
     if sort == "namn":
         rows.sort(key=lambda r: r.titel.lower())
     elif sort == "pris":

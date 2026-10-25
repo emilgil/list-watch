@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Callable
 
 from .amazon import AmazonSource
-from .collector import CollectResult, Progress, collect
+from .collector import CollectResult, Progress, collect, send_ops_notice
 from .db import connect, purge_logs, set_setting, setting, setting_int, utc_iso
 from .fetcher import Fetch, FetchResult, make_fetcher, polite
 from .notify import Notifier, notifier_from_settings
@@ -90,11 +90,7 @@ def after_omgang(conn: sqlite3.Connection, res: CollectResult, now: datetime, no
     if blocked != BLOCKED_ALERT:
         return
     body = f"Amazon har blockerat {blocked} omgångar i rad (CAPTCHA eller HTTP 503). Insamlingen backar av."
-    error = notifier.send("listwatch: blockerad av Amazon", body)
-    conn.execute(
-        "INSERT INTO event (run_id, tid, typ, text) VALUES (?, ?, 'drift_notis', ?)",
-        (res.run_ids[-1] if res.run_ids else None, utc_iso(now), body if error is None else f"{body} Misslyckades: {error}"),
-    )
+    send_ops_notice(conn, notifier, res.run_ids[-1] if res.run_ids else None, now, "listwatch: blockerad av Amazon", body)
 
 
 def run_omgang(

@@ -204,7 +204,7 @@ def test_cli_collect(db_path, conn, monkeypatch, capsys):
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     assert cli.main(["collect", "--db", str(db_path)]) == 0
     out = capsys.readouterr().out
-    assert "Omgång 1" in out and "L1: OK, 1 lästa, 0 larm" in out
+    assert "Omgång 1" in out and "L: OK, 1 lästa, 0 larm" in out
     assert conn.execute("SELECT typ FROM run").fetchone()[0] == "manuell"
 
 

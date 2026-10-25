@@ -43,6 +43,7 @@ class WishlistPage:
     title: str | None
     items: list[WishlistItem] = field(default_factory=list)
     next_url: str | None = None
+    unparsed: int = 0  # list items without a readable ASIN
 
 
 @dataclass
@@ -124,6 +125,8 @@ def parse_wishlist_page(html: str) -> WishlistPage:
         item = _item(li)
         if item:
             page.items.append(item)
+        else:
+            page.unparsed += 1
     more = tree.css_first("a.wl-see-more")
     if more is not None and more.attributes.get("href"):
         page.next_url = urljoin(BASE_URL, more.attributes["href"])

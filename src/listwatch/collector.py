@@ -15,6 +15,12 @@ Rules (spec "Datainsamling" and docs/spec-logg.md):
   Prime status is unknown or older than prime_fresh_for_alert waits for a product page
   check (not counted against the cap); it is sent only if Prime. senaste_larm_pris is set
   only when the notification was sent, so a failed send is retried next round.
+- Ops notifications per list: a list that can't be read (not blocked) LIST_FAILED_ALERT
+  omgångar in a row (0 items or HTTP 403/404/410 = `privat`: private, removed or empty;
+  Amazon shows the same empty page for all three), and when it can be read again; more
+  than PARSE_ERROR_SHARE (and at least PARSE_ERROR_MIN) of a list's items not understood (no ASIN or title, or a price
+  lost this omgång, which a layout change does to every item at once), once until it
+  drops back under.
 - `progress`, if given, gets one line per list item, product page and alert as they happen.
 """
 import sqlite3
@@ -35,6 +41,10 @@ PRIME = {True: "prime", False: "inte_prime", None: "okänd"}
 SUSPICIOUS_SHARE = 0.10  # below 10 % of the median
 CONFIRM_SHARE = 0.10  # a suspicious price is confirmed by a next price within ±10 %
 MEDIAN_DAYS = 90
+LIST_FAILED_ALERT = 2
+PARSE_ERROR_SHARE = 0.20
+PARSE_ERROR_MIN = 3  # a small list losing one or two prices is not a layout change
+GONE_STATUSES = (403, 404, 410)
 
 Clock = Callable[[], datetime]
 Progress = Callable[[str], None]
@@ -78,6 +88,7 @@ class _Run:
         self.captcha: str | None = None
         self.missing_price = 0
         self.read_failed = False  # the list (or every local watch) could not be read
+        self.price_lost = 0  # items that had a price last time and have none now
         self.id = conn.execute(
             "INSERT INTO run (omgang, typ, wishlist_id, list_namn, list_id, start) VALUES (?, ?, ?, ?, ?, ?)",
             (omgang, typ, wl["id"], wl["namn"], wl["list_id"], utc_iso(now())),
@@ -118,6 +129,17 @@ class _Run:
         if self.missing_price or self.count["fel"] or self.count["larm_misslyckade"]:
             return "delvis"
         return "ok"
+
+
+def send_ops_notice(
+    conn: sqlite3.Connection, notifier: Notifier, run_id: int | None, now: datetime, title: str, body: str
+) -> None:
+    """Send an ops notification and log it as a drift_notis event (with the error if it failed)."""
+    error = notifier.send(title, body)
+    conn.execute(
+        "INSERT INTO event (run_id, tid, typ, text) VALUES (?, ?, 'drift_notis', ?)",
+        (run_id, utc_iso(now), body if error is None else f"{body} Misslyckades: {error}"),
+    )
 
 
 def collect(
@@ -168,9 +190,24 @@ def _collect_list(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqlit
         blocked = read.captcha or read.http_status == 503
         omgang.list_blocked = bool(blocked)
         omgang.blocked = omgang.blocked or omgang.list_blocked
-        status = "blockerad" if blocked else "fel"
         omgang.say(f"  kunde inte läsa listan ({read.error}, HTTP {read.http_status or 'inget svar'})")
-        conn.execute("UPDATE wishlist SET status = ? WHERE id = ?", (status, wl["id"]))
+        if blocked:  # has its own ops notification after 3 blocked omgångar
+            conn.execute("UPDATE wishlist SET status = 'blockerad' WHERE id = ?", (wl["id"],))
+            return
+        gone = read.error == "parse" or read.http_status in GONE_STATUSES
+        failed = wl["fel_i_rad"] + 1
+        conn.execute(
+            "UPDATE wishlist SET status = ?, fel_i_rad = ? WHERE id = ?", ("privat" if gone else "fel", failed, wl["id"])
+        )
+        if failed == LIST_FAILED_ALERT:
+            reason = (
+                "Amazon visar inga produkter: listan kan ha gjorts privat, tagits bort eller tömts."
+                if gone else f"Fel vid läsning (HTTP {read.http_status or 'inget svar'})."
+            )
+            send_ops_notice(
+                conn, omgang.notifier, run.id, run.now(), f"listwatch: listan {wl['namn']} går inte att läsa",
+                f"Listan {wl['namn']} har inte gått att läsa {failed} omgångar i rad. {reason} Historiken finns kvar.",
+            )
         return
 
     items = list({i.asin: i for i in read.items}.values())
@@ -178,14 +215,23 @@ def _collect_list(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqlit
     try:
         _apply_list(conn, run, wl, items, omgang)
         conn.execute(
-            "UPDATE wishlist SET status = 'ok', senast_synkad = ? WHERE id = ?", (utc_iso(run.now()), wl["id"])
+            "UPDATE wishlist SET status = 'ok', senast_synkad = ?, fel_i_rad = 0 WHERE id = ?",
+            (utc_iso(run.now()), wl["id"]),
         )
         if read.title and wl["namn"] == wl["list_id"]:  # added without a name: take Amazon's
             conn.execute("UPDATE wishlist SET namn = ? WHERE id = ?", (read.title, wl["id"]))
+            conn.execute("UPDATE run SET list_namn = ? WHERE id = ?", (read.title, run.id))
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
         raise
+    if wl["fel_i_rad"] >= LIST_FAILED_ALERT:
+        name = read.title if wl["namn"] == wl["list_id"] and read.title else wl["namn"]
+        send_ops_notice(
+            conn, omgang.notifier, run.id, run.now(), f"listwatch: listan {name} går att läsa igen",
+            f"Listan {name} gick att läsa igen efter {wl['fel_i_rad']} misslyckade omgångar.",
+        )
+    _check_parse_errors(conn, run, wl, read.unparsed, items, omgang)
     _check_alerts(conn, source, run, omgang)
     _refresh_prime(conn, source, run, {i.asin for i in items}, omgang)
 
@@ -225,6 +271,9 @@ def _apply_list(conn: sqlite3.Connection, run: _Run, wl: sqlite3.Row, items: lis
             notes.append("ny")
         if item.asin not in omgang.seen:
             omgang.seen.add(item.asin)
+            if item.status == STATUS_MISSING_PRICE:
+                prev = conn.execute("SELECT senaste_status FROM product WHERE asin = ?", (item.asin,)).fetchone()[0]
+                run.price_lost += prev == STATUS_PRICE
             notes.append(_measure(conn, run, item.asin, item.status, item.price_ore, "lista"))
         else:
             notes.append("redan mätt i en tidigare lista")
@@ -243,6 +292,32 @@ def _apply_list(conn: sqlite3.Connection, run: _Run, wl: sqlite3.Row, items: lis
     conn.execute(
         """UPDATE product SET aktiv = 0 WHERE aktiv = 1 AND NOT EXISTS (
                SELECT 1 FROM wishlist_product wp WHERE wp.asin = product.asin AND wp.borttagen IS NULL)"""
+    )
+
+
+def _check_parse_errors(
+    conn: sqlite3.Connection, run: _Run, wl: sqlite3.Row, unparsed: int, items: list[WishlistItem], omgang: _Omgang
+) -> None:
+    total = len(items) + unparsed
+    bad = unparsed + sum(1 for i in items if not i.title) + run.price_lost
+    if bad <= PARSE_ERROR_SHARE * total or bad < PARSE_ERROR_MIN:
+        if wl["parserfel"]:
+            conn.execute("UPDATE wishlist SET parserfel = 0 WHERE id = ?", (wl["id"],))
+        return
+    detail = f"{bad} av {total} produkter kunde inte tolkas"
+    parts = [f"{n} {what}" for n, what in (
+        (unparsed, "utan ASIN"), (sum(1 for i in items if not i.title), "utan titel"),
+        (run.price_lost, "tappade sitt pris"),
+    ) if n]
+    detail += f" ({', '.join(parts)})"
+    omgang.say(f"  parserfel: {detail}")
+    if wl["parserfel"]:
+        return
+    run.error("parsningsfel", text=detail)
+    conn.execute("UPDATE wishlist SET parserfel = 1 WHERE id = ?", (wl["id"],))
+    send_ops_notice(
+        conn, omgang.notifier, run.id, run.now(), f"listwatch: parserfel på listan {wl['namn']}",
+        f"{detail} på listan {wl['namn']}. Amazon kan ha ändrat sidlayouten; parsern behöver ses över.",
     )
 
 

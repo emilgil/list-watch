@@ -39,7 +39,7 @@
       <td class="num">{{ l.produkter }}</td>
       <td>{{ l.senast_synkad | lokal_tid }}
         {% if l.senaste_resultat %}<div class="small {{ l.senaste_resultat }}">{{ l.senaste_resultat | upper }}</div>{% endif %}</td>
-      <td class="{{ l.status }}">{{ {"ok": "OK", "blockerad": "Blockerad", "privat": "Privat", "fel": "Fel"}[l.status] }}</td>
+      <td class="{{ l.status }}">{{ {"ok": "OK", "blockerad": "Blockerad", "privat": "Ej åtkomlig", "fel": "Fel"}[l.status] }}</td>
       <td>
         <form class="inline" method="post" action="/listor/{{ l.id }}/procent">
           <input type="number" name="procent" min="1" max="99" aria-label="Procent under referens"
