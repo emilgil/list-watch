@@ -7,12 +7,15 @@ import httpx
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/130.0.0.0 Safari/537.36"
+    "Chrome/156.0.0.0 Safari/537.36"
 )
 DELAY_RANGE = (5, 15)
 
 HEADERS = {
     "User-Agent": USER_AGENT,
+    "Sec-CH-UA": '"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"',
+    "Sec-CH-UA-Mobile": "?0",
+    "Sec-CH-UA-Platform": '"Linux"',
     "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.5",
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
 }
