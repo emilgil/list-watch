@@ -359,7 +359,7 @@ def test_amazon_source_against_real_fixtures(conn):
         "https://www.amazon.se/dp/B08WRMRF44": (FIX / "real_product_B07FK9P738.html").read_text(encoding="utf-8"),
     }
     add_list(conn, "https://www.amazon.se/hz/wishlist/ls/ABC123XYZ")
-    source = AmazonSource(lambda url: FetchResult(200, pages[url], 0.1))
+    source = AmazonSource(lambda url: FetchResult(200, pages[url], 0.1), sleep=lambda s: None)
     [run_id] = collect(conn, source, now=Clock())
     r = run_row(conn, run_id)
     assert (r["lasta"], r["produktsidor"], r["resultat"]) == (3, 3, "delvis")

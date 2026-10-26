@@ -178,6 +178,11 @@ def collect(
 def _collect_list(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqlite3.Row, omgang: _Omgang) -> None:
     read = source.read_list(wl["url"])
     run.count["sidor"] = read.pages
+    if read.retried_after:  # logged, but not an error unless the retry failed too
+        run.event(
+            "captcha" if read.retried_after == "CAPTCHA" else "http_fel",
+            text=f"listsida: {read.retried_after}, nytt försök efter paus",
+        )
     if read.error:
         run.read_failed = True
         if read.error == "captcha":

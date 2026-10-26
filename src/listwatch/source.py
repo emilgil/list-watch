@@ -14,6 +14,7 @@ class ListRead:
     captcha: bool = False
     seconds: list[float] = field(default_factory=list)
     unparsed: int = 0  # list items the parser could not read
+    retried_after: str | None = None  # this is a retry; the first read was refused for this reason
 
     @property
     def error(self) -> str | None:

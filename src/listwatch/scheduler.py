@@ -49,10 +49,11 @@ def _parse_utc(value: str) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def amazon_source(on_fetch: Progress | None = None) -> Source:
+def amazon_source(on_fetch: Progress | None = None, on_wait: Progress | None = None) -> Source:
     """A fresh polite source per omgång, so its first request is not delayed.
 
-    `on_fetch` gets each URL right before it is requested (after the politeness delay).
+    `on_fetch` gets each URL right before it is requested (after the politeness delay),
+    `on_wait` each longer pause (between lists, product page groups, before a retry).
     """
     fetch: Fetch = make_fetcher()
     if on_fetch:
@@ -62,7 +63,7 @@ def amazon_source(on_fetch: Progress | None = None) -> Source:
             on_fetch(url)
             return inner(url)
 
-    return AmazonSource(polite(fetch))
+    return AmazonSource(polite(fetch), on_wait=on_wait)
 
 
 def interval(conn: sqlite3.Connection, now: datetime) -> timedelta:

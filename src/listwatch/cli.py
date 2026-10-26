@@ -168,7 +168,7 @@ def _collect(args: argparse.Namespace) -> int:
             return 2
         say = (lambda line: print(line, flush=True)) if args.verbose else None
         fetched = (lambda url: say(f"  hämtar {url.removeprefix(BASE_URL)}")) if say else None
-        res = scheduler.run_omgang(conn, scheduler.amazon_source(fetched), typ="manuell", progress=say)
+        res = scheduler.run_omgang(conn, scheduler.amazon_source(fetched, say), typ="manuell", progress=say)
         rows = [
             conn.execute("SELECT list_namn, lasta, larm_skickade, resultat FROM run WHERE id = ?", (i,)).fetchone()
             for i in res
