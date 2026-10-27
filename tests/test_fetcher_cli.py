@@ -32,6 +32,15 @@ def test_fetcher_logs_status_and_http_version(caplog):
     assert "GET https://www.amazon.se/x → 200 (HTTP/2," in caplog.text
 
 
+def test_fetcher_logs_next_pages_without_the_pagination_token(caplog):
+    caplog.set_level(logging.INFO, logger="listwatch.fetcher")
+    url = ("https://www.amazon.se/hz/wishlist/slv/items?filter=unpurchased&paginationToken=ESHV2_AAAA%3D"
+           "&itemsLayout=LIST&sort=date-added&type=wishlist&lid=23FOSFI6P31ZS")
+    make_fetcher(FakeSession())(url)
+    assert "GET https://www.amazon.se/hz/wishlist/slv/items?lid=23FOSFI6P31ZS (nästa sida) → 200" in caplog.text
+    assert "ESHV2" not in caplog.text
+
+
 def test_polite_waits_5_to_15_s_between_requests_but_not_before_the_first():
     slept = []
     fetch = polite(lambda url: FetchResult(200, url, 0.1), sleep=slept.append)

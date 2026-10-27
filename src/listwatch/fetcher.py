@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from http.cookiejar import Cookie
 from pathlib import Path
 from typing import Callable
+from urllib.parse import parse_qs, urlsplit
 
 from curl_cffi import requests
 
@@ -51,6 +52,16 @@ def polite(fetch: Fetch, sleep: Callable[[float], None] = time.sleep) -> Fetch:
         return fetch(url)
 
     return wrapped
+
+
+def _for_log(url: str) -> str:
+    """The URL without the long pagination token (it makes a journal line ~800 chars)."""
+    parts = urlsplit(url)
+    query = parse_qs(parts.query)
+    if "paginationToken" not in query:
+        return url
+    lid = query.get("lid", [""])[0]
+    return f"{parts.scheme}://{parts.netloc}{parts.path}?lid={lid} (nästa sida)"
 
 
 def make_session() -> requests.Session:
@@ -92,11 +103,11 @@ class Fetcher:
             r = self.session.get(url, timeout=TIMEOUT, allow_redirects=True)
         except requests.RequestsError as e:
             seconds = time.monotonic() - t0
-            log.info("GET %s → fel: %s (%.1f s)", url, e, seconds)
+            log.info("GET %s → fel: %s (%.1f s)", _for_log(url), e, seconds)
             return FetchResult(status=0, html="", seconds=seconds)
         seconds = time.monotonic() - t0
         version = _HTTP_VERSIONS.get(getattr(r, "http_version", 0), "?")
-        log.info("GET %s → %d (HTTP/%s, %.1f s)", url, r.status_code, version, seconds)
+        log.info("GET %s → %d (HTTP/%s, %.1f s)", _for_log(url), r.status_code, version, seconds)
         return FetchResult(status=r.status_code, html=r.text, seconds=seconds)
 
     @property
