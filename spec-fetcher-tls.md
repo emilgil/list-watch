@@ -67,12 +67,26 @@ Status: förslag, 2026-10-27. Förutsättningen är verifierad (se "Testresultat
 - En trasig eller oläsbar fil räknas som tom och skrivs över. Det ger ett varningsloggmeddelande men inget fel.
 - `listwatch probe` använder samma HTTP-inställningar men en egen tom session och **sparar inte** cookies. Proben ska inte påverka agentens session.
 
-### 4. Uppvärmning vid tom session
+### 4. Ingen uppvärmning, och HTTP 202 räknas som nekad
 
-- När sessionen saknar cookies (första körningen, eller efter en tömning) hämtas `https://www.amazon.se/` före första listan.
-- Uppvärmningen räknas som en vanlig förfrågan: den följer 5–15 s-regeln och loggas.
-- Om uppvärmningen ger CAPTCHA eller 503 behandlas det som en nekad listläsning. Omförsök och backoff gäller som vanligt.
-- Ingen manipulering av `Referer` eller `Sec-Fetch-Site`. Det sköter impersonation.
+*Ändrat 2026-10-27 efter drift.* Den första versionen hämtade `https://www.amazon.se/` före första listan när sessionen saknade cookies. I drift svarade startsidan **202** tre gånger i rad. 202 är Amazons JavaScript-utmaning (AWS WAF), och den kan curl_cffi inte klara. Koden räknade 202 som ett vanligt fel, så listan lästes inte och inget omförsök gjordes. Själva önskelistan gav samtidigt 200 direkt, och den sätter egna cookies.
+
+**Uppvärmningen tas bort helt.**
+- En omgång går direkt till första listans URL, även när sessionen saknar cookies. Cookies från listsidorna sparas som i avsnitt 3.
+- Flaggan som håller reda på om sessionen är uppvärmd (`_warm` i `AmazonSource`) och uppvärmningsanropet tas bort. `CookieSession.has_cookies` behövs inte längre för detta. Den får vara kvar bara om något annat använder den.
+- Docstringen överst i `amazon.py` uppdateras.
+
+**HTTP 202 räknas som en nekad förfrågan, precis som 503 och CAPTCHA.**
+- Det gäller överallt där blockering avgörs:
+  - listläsningen (`_blocked()` i `amazon.py` och kontrollen i `collector.py`)
+  - produktsidorna (`collector.py`).
+- En nekad listsida ger alltså omförsök efter `RETRY_WAIT`. Om även omförsöket nekas räknas omgången som blockerad, med backoff och tömda cookies. En nekad produktsida avbryter produktsidorna för resten av omgången.
+- Orsaken loggas och visas som `HTTP 202 (JS-utmaning)`, så att den skiljs från 503.
+- Driftnotisens text och loggraden "blockerad av Amazon (CAPTCHA eller HTTP 503)" ändras till "(CAPTCHA, HTTP 503 eller HTTP 202)". Det gäller `scheduler.py` och eventuella GUI-texter.
+- Övriga statuskoder som inte är 200 (404, 500 och så vidare) räknas som i dag: fel, inte blockering.
+- Blockerande statuskoder samlas på ett ställe, en konstant med {202, 503}, i stället för att 503 skrivs ut i flera moduler.
+
+**Probe:** en 202 rapporteras som blockerad (avslutskod 2), med texten "JS-utmaning (HTTP 202)".
 
 ### 5. Dokumentation
 
@@ -87,7 +101,11 @@ Status: förslag, 2026-10-27. Förutsättningen är verifierad (se "Testresultat
 - Cookies laddas, sparas och laddas igen till samma uppsättning (via en temporär katalog).
 - En trasig cookie-fil ger en tom session och en varning.
 - En blockerad omgång tömmer cookie-filen. En lyckad omgång gör det inte.
-- Uppvärmning sker bara när sessionen är tom.
+- Ingen förfrågan går till startsidan, inte heller med tom session. Första förfrågan i en omgång är listans URL.
+- 202 på en listsida ger omförsök. 202 även på omförsöket ger en blockerad omgång, tömda cookies och ökad backoff.
+- 202 på en produktsida avbryter produktsidorna för omgången och räknas som blockering.
+- 404 och 500 räknas fortfarande som fel, inte blockering.
+- Probe ger avslutskod 2 vid 202.
 - Probe skriver inte till cookie-filen.
 - Befintliga tester för pacing, scheduler och collector passerar utan ändring, förutom att `test_fetcher_cli.py` byter från `httpx.MockTransport` till den nya injektionspunkten.
 
@@ -102,10 +120,12 @@ Status: förslag, 2026-10-27. Förutsättningen är verifierad (se "Testresultat
 - `listwatch probe` från LXC:n blockeras inte mot listan "Köket": avslutskod 0 eller 1, inte 2. Avslutskod 1 betyder bara att några produkter saknar pris på Amazon ("Visa alla köpalternativ").
 - Tre schemalagda omgångar i rad är oblockerade och läser alla listor (produktsidor hämtas bara för enstaka ASIN-bevakningar).
 - Journalen visar `HTTP/2` i fetcherns loggrad.
+- Journalen visar ingen `GET https://www.amazon.se/`. Första förfrågan i varje omgång är en listsida.
 - Alla tester passerar.
 
 ## Risker
 
 - Amazon kan med tiden känna igen äldre impersonation-profiler. Åtgärden är att höja curl_cffi-versionen i låsfilen. Det är en driftuppgift, ingen kodändring.
 - curl_cffi innehåller en binär del, libcurl-impersonate. Om det någon gång saknas hjul för en plattform faller installationen. Det gäller inte x86_64 eller aarch64 i dag.
+- Amazon kan börja skicka JS-utmaningar (202) även på listsidor. Då fångas det som blockering med backoff och driftnotis, men det kan inte lösas utan en riktig webbläsare. Det ligger utanför v1.
 - Blockering som beror på frekvens eller IP löser den här ändringen inte. Därför finns förutsättningen överst: testet måste visa att curl_cffi lyckas där httpx misslyckas.
