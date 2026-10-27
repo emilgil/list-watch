@@ -7,9 +7,11 @@ Rules (spec "Datainsamling" and docs/spec-logg.md):
 - A list that says `saknar_pris` cannot overrule `ej_i_lager` decided by a product page.
 - Prime is not tracked (decided 2026-10-27): product pages are fetched only for local
   ASIN watches, which read their product page every omgång. CAPTCHA or HTTP error on a
-  product page stops product pages for the rest of the omgång.
-- CAPTCHA or HTTP 503 on a list page stops the whole omgång (remaining lists get no run),
-  and the omgång counts as blocked for the scheduler's backoff.
+  product page stops product pages for the rest of the omgång; CAPTCHA, 503 or 202 there
+  also counts as blocked.
+- A refused list page (CAPTCHA, HTTP 503 or HTTP 202 = JS challenge, `source.BLOCKED_STATUSES`)
+  stops the whole omgång (remaining lists get no run), and the omgång counts as blocked for
+  the scheduler's backoff.
 - After each list is stored its new measurements are judged by `alerts` and alerts are
   sent at once. senaste_larm_pris is set only when the notification was sent, so a failed
   send is retried next round.
@@ -58,7 +60,7 @@ class _Omgang:
     say: Progress = lambda _line: None
     seen: set[str] = field(default_factory=set)
     product_pages_blocked: bool = False
-    blocked: bool = False  # CAPTCHA or HTTP 503 anywhere: back off
+    blocked: bool = False  # CAPTCHA, HTTP 503 or 202 anywhere: back off
     list_blocked: bool = False  # stop reading further lists
 
 
@@ -176,17 +178,18 @@ def _collect_list(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqlit
         )
     if read.error:
         run.read_failed = True
+        blocked = read.blocked
+        status = blocked or f"HTTP {read.http_status or 'inget svar'}"
         if read.error == "captcha":
             run.captcha = "listsida"
             run.error("captcha", text="listsida")
         elif read.error == "http":
-            run.error("http_fel", text=f"listsida: HTTP {read.http_status or 'inget svar'}")
+            run.error("http_fel", text=f"listsida: {status}")
         else:
             run.error("parsningsfel", text="inga produkter hittades på listsidan")
-        blocked = read.captcha or read.http_status == 503
         omgang.list_blocked = bool(blocked)
         omgang.blocked = omgang.blocked or omgang.list_blocked
-        omgang.say(f"  kunde inte läsa listan ({read.error}, HTTP {read.http_status or 'inget svar'})")
+        omgang.say(f"  kunde inte läsa listan ({read.error}, {status})")
         if blocked:  # has its own ops notification after 3 blocked omgångar
             conn.execute("UPDATE wishlist SET status = 'blockerad' WHERE id = ?", (wl["id"],))
             return
@@ -382,19 +385,20 @@ def _measure(conn: sqlite3.Connection, run: _Run, asin: str, status: str, price:
 
 
 def _read_product(source: Source, run: _Run, asin: str, omgang: _Omgang):
-    """Fetch one product page (local watches). None on CAPTCHA/HTTP error."""
+    """Fetch one product page (local watches). None on CAPTCHA/HTTP error (202/503 = blocked)."""
     res = source.read_product(asin)
     run.count["produktsidor"] += 1
     if res.captcha or res.page is None:
         omgang.product_pages_blocked = True
-        omgang.blocked = omgang.blocked or res.captcha or res.http_status == 503
+        omgang.blocked = omgang.blocked or bool(res.blocked)
         if res.captcha:
             run.captcha = run.captcha or "produktsida"
             run.error("captcha", asin, text="produktsida")
             omgang.say(f"  {asin}  produktsida: CAPTCHA, inga fler produktsidor denna omgång")
         else:
-            run.error("http_fel", asin, text=f"produktsida: HTTP {res.http_status or 'inget svar'}")
-            omgang.say(f"  {asin}  produktsida: HTTP {res.http_status or 'inget svar'}, inga fler produktsidor denna omgång")
+            status = res.blocked or f"HTTP {res.http_status or 'inget svar'}"
+            run.error("http_fel", asin, text=f"produktsida: {status}")
+            omgang.say(f"  {asin}  produktsida: {status}, inga fler produktsidor denna omgång")
         return None
     return res.page
 

@@ -12,6 +12,7 @@ from .fetcher import make_fetcher
 from .lists import is_amazon_se
 from .parser import BASE_URL
 from .probe import render_report, run_probe
+from .source import BLOCKED_TEXT
 
 DATA_DIR = Path(os.environ.get("LISTWATCH_DATA_DIR", "/var/lib/listwatch"))
 DEFAULT_PROBE_DIR = DATA_DIR / "probe"
@@ -179,7 +180,7 @@ def _collect(args: argparse.Namespace) -> int:
     for r in rows:
         print(f"  {r['list_namn']}: {r['resultat'].upper()}, {r['lasta']} lästa, {r['larm_skickade']} larm")
     if res.blocked:
-        print("  Blockerad av Amazon (CAPTCHA eller HTTP 503)")
+        print(f"  Blockerad av Amazon ({BLOCKED_TEXT})")
     results = {r["resultat"] for r in rows}
     if res.blocked or "fel" in results:
         return 2

@@ -110,10 +110,6 @@ class Fetcher:
         log.info("GET %s → %d (HTTP/%s, %.1f s)", _for_log(url), r.status_code, version, seconds)
         return FetchResult(status=r.status_code, html=r.text, seconds=seconds)
 
-    @property
-    def has_cookies(self) -> bool:
-        return any(_ours(c) for c in self.session.cookies.jar)
-
     def _load(self) -> None:
         if not self.cookie_file.exists():
             return

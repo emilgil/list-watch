@@ -4,6 +4,16 @@ from typing import Protocol
 
 from .parser import ProductPage, WishlistItem
 
+# Amazon refusing a request: 503, or 202 = JavaScript challenge (AWS WAF), which curl_cffi
+# can't pass. Like CAPTCHA these are retried/backed off; other non-200 statuses are errors.
+BLOCKED_STATUSES = {202: "HTTP 202 (JS-utmaning)", 503: "HTTP 503"}
+BLOCKED_TEXT = "CAPTCHA, HTTP 503 eller HTTP 202"
+
+
+def blocked_reason(captcha: bool, http_status: int | None) -> str | None:
+    """'CAPTCHA', 'HTTP 202 (JS-utmaning)' or 'HTTP 503' if Amazon refused, else None."""
+    return "CAPTCHA" if captcha else BLOCKED_STATUSES.get(http_status)
+
 
 @dataclass
 class ListRead:
@@ -25,12 +35,20 @@ class ListRead:
             return "http"
         return None if self.items else "parse"
 
+    @property
+    def blocked(self) -> str | None:
+        return blocked_reason(self.captcha, self.http_status)
+
 
 @dataclass
 class ProductRead:
     http_status: int
     captcha: bool = False
     page: ProductPage | None = None
+
+    @property
+    def blocked(self) -> str | None:
+        return blocked_reason(self.captcha, self.http_status)
 
 
 class Source(Protocol):

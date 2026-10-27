@@ -69,6 +69,13 @@ def test_http_503_gives_exit_code_2(tmp_path):
     assert r.http_status == 503 and r.exit_code == 2
 
 
+def test_js_challenge_202_gives_exit_code_2(tmp_path):
+    r = probe({URL: (202, "")}, tmp_path)
+    assert r.http_status == 202 and r.exit_code == 2
+    text = render_report(r)
+    assert "JS-utmaning (HTTP 202)" in text and "BLOCKERAD ELLER FEL (avslutskod 2)" in text
+
+
 def test_unparseable_page_gives_exit_code_2(tmp_path):
     r = probe({URL: (200, "<html><body>hej</body></html>")}, tmp_path)
     assert r.products == 0 and r.exit_code == 2

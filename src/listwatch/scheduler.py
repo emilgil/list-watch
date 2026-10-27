@@ -4,7 +4,7 @@ Rules (spec K3, "Hövlighet mot Amazon", "Drift"):
 - The interval is `intervall_timmar` (lowest 1 h). While `kampanj_slut` is in the future and
   `kampanj_intervall_timmar` > 0, the campaign interval applies instead.
 - Every scheduled start gets a random 0..`fordrojning_minuter` minutes on top.
-- A blocked omgång (CAPTCHA or HTTP 503) backs off exponentially: interval × 2^n, n = blocked
+- A blocked omgång (CAPTCHA, HTTP 503 or HTTP 202) backs off exponentially: interval × 2^n, n = blocked
   omgångar in a row (`blockerade_i_rad`), capped at MAX_BACKOFF but never below the interval.
   A non-blocked omgång resets the count. Manual omgångar count too.
 - When the count reaches BLOCKED_ALERT an ops notification is sent once (a `drift_notis` event).
@@ -28,7 +28,7 @@ from .collector import CollectResult, Progress, collect, send_ops_notice
 from .db import connect, purge_logs, set_setting, setting, setting_int, utc_iso
 from .fetcher import COOKIE_FILE, Fetch, FetchResult, make_fetcher, polite
 from .notify import Notifier, notifier_from_settings
-from .source import Source
+from .source import BLOCKED_TEXT, Source
 
 MIN_INTERVAL = timedelta(hours=1)
 MAX_BACKOFF = timedelta(hours=24)
@@ -100,7 +100,7 @@ def after_omgang(conn: sqlite3.Connection, res: CollectResult, now: datetime, no
     set_setting(conn, "blockerade_i_rad", blocked)
     if blocked != BLOCKED_ALERT:
         return
-    body = f"Amazon har blockerat {blocked} omgångar i rad (CAPTCHA eller HTTP 503). Insamlingen backar av."
+    body = f"Amazon har blockerat {blocked} omgångar i rad ({BLOCKED_TEXT}). Insamlingen backar av."
     send_ops_notice(conn, notifier, res.run_ids[-1] if res.run_ids else None, now, "listwatch: blockerad av Amazon", body)
 
 
@@ -132,7 +132,7 @@ def _log_result(conn: sqlite3.Connection, res: CollectResult) -> None:
             f", CAPTCHA på {r['captcha']}" if r["captcha"] else "",
         )
     if res.blocked:
-        log.warning("omgång %d blockerad av Amazon (CAPTCHA eller HTTP 503)", res.omgang)
+        log.warning("omgång %d blockerad av Amazon (%s)", res.omgang, BLOCKED_TEXT)
 
 
 class Scheduler:

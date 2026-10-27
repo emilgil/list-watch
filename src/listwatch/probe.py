@@ -78,7 +78,12 @@ def _pct(n: int, total: int) -> str:
 
 
 def render_report(r: ProbeReport) -> str:
-    http = f"{r.http_status} {'OK' if r.http_status == 200 else ''}".strip() if r.http_status else "ingen respons"
+    if r.http_status == 202:
+        http = "JS-utmaning (HTTP 202)"
+    elif r.http_status:
+        http = f"{r.http_status} {'OK' if r.http_status == 200 else ''}".strip()
+    else:
+        http = "ingen respons"
     lines = [
         f"List Watch – probe  {r.started}",
         f'Lista:        "{r.list_title or "?"}" ({r.list_id or "?"})',

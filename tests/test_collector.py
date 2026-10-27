@@ -303,6 +303,41 @@ def test_product_page_captcha_marks_the_omgang_blocked(conn):
     src.products["A000000001"] = ProductRead(200, captcha=True)
     assert collect(conn, src, now=Clock()).blocked
 
+def test_product_page_202_stops_product_pages_and_blocks(conn):
+    local_watch(conn, "A000000001", "A000000002")
+    src = FakeSource()
+    src.products["A000000001"] = ProductRead(202)
+    assert collect(conn, src, now=Clock()).blocked
+    assert src.product_calls == ["A000000001"]
+    text = conn.execute("SELECT text FROM event WHERE typ = 'http_fel'").fetchone()[0]
+    assert text == "produktsida: HTTP 202 (JS-utmaning)"
+
+
+@pytest.mark.parametrize("status", [404, 500])
+def test_other_product_page_errors_are_not_blocking(conn, status):
+    local_watch(conn, "A000000001")
+    src = FakeSource()
+    src.products["A000000001"] = ProductRead(status)
+    assert not collect(conn, src, now=Clock()).blocked
+
+
+@pytest.mark.parametrize("status", [202, 503])
+def test_refused_list_blocks_the_omgang(conn, status):
+    add_list(conn, "L1")
+    src = FakeSource()
+    src.lists["L1"] = ListRead(http_status=status)
+    assert collect(conn, src, now=Clock()).blocked
+    assert conn.execute("SELECT status FROM wishlist").fetchone()[0] == "blockerad"
+
+
+@pytest.mark.parametrize("status", [404, 500])
+def test_other_list_errors_are_not_blocking(conn, status):
+    add_list(conn, "L1")
+    src = FakeSource()
+    src.lists["L1"] = ListRead(http_status=status)
+    assert not collect(conn, src, now=Clock()).blocked
+
+
 def test_404_on_a_list_is_not_blocking(conn):
     add_list(conn, "L1")
     add_list(conn, "L2")

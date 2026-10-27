@@ -7,6 +7,7 @@ from curl_cffi.requests import Cookies
 
 from listwatch.amazon import AmazonSource
 from listwatch.fetcher import Fetcher, FetchResult, _from_dict
+from listwatch.db import setting_int
 from listwatch.scheduler import run_omgang
 from test_collector import Clock, add_list, conn  # noqa: F401  (fixture)
 from test_scheduler import FakeNotifier
@@ -58,7 +59,6 @@ def test_cookies_are_saved_and_loaded_again(tmp_path):
     assert saved(path) == {("ubid-acbse", "x", ".amazon.se")}
     assert path.stat().st_mode & 0o777 == 0o600
     again = Fetcher(FakeSession(), path)
-    assert again.has_cookies
     assert {(c.name, c.value) for c in again.session.cookies.jar} == {("ubid-acbse", "x")}
 
 
@@ -66,7 +66,7 @@ def test_broken_cookie_file_gives_an_empty_session_and_a_warning(tmp_path, caplo
     path = tmp_path / "cookies.json"
     path.write_text("{trasig")
     f = Fetcher(FakeSession(), path)
-    assert not f.has_cookies
+    assert list(f.session.cookies.jar) == []
     assert "går inte att läsa" in caplog.text
     f.save_cookies()
     assert saved(path) == set()
@@ -90,27 +90,18 @@ def wishlist():
     return (FIX / "real_wishlist_items.html").read_text(encoding="utf-8")
 
 
-def test_empty_session_warms_up_on_the_start_page_first(tmp_path):
+def test_no_start_page_request_even_with_an_empty_session(tmp_path):
     session = FakeSession({LIST_URL: (200, wishlist())})
     source(session, tmp_path / "cookies.json").read_list(LIST_URL)
-    assert session.urls[:2] == [HOME, LIST_URL]
-
-
-def test_no_warm_up_with_stored_cookies(tmp_path):
-    path = tmp_path / "cookies.json"
-    path.write_text(json.dumps([{"name": "session-id", "value": "1", "domain": ".amazon.se", "path": "/"}]))
-    session = FakeSession({LIST_URL: (200, wishlist())})
-    src = source(session, path)
-    src.read_list(LIST_URL)
-    src.read_list(LIST_URL)
+    assert session.urls[0] == LIST_URL
     assert HOME not in session.urls
 
 
-def test_refused_warm_up_counts_as_a_refused_list_read_and_is_retried(tmp_path):
-    session = FakeSession({HOME: (503, "")})
+def test_http_202_on_a_list_is_retried(tmp_path):
+    session = FakeSession({LIST_URL: (202, "")})
     read = source(session, tmp_path / "cookies.json").read_list(LIST_URL)
-    assert read.http_status == 503 and read.retried_after == "HTTP 503"
-    assert session.urls == [HOME, HOME]
+    assert session.urls == [LIST_URL, LIST_URL]
+    assert read.retried_after == "HTTP 202 (JS-utmaning)" and read.blocked
 
 
 def test_successful_omgang_saves_cookies(conn, tmp_path):
@@ -127,3 +118,14 @@ def test_blocked_omgang_clears_the_cookie_file(conn, tmp_path):
     res = run_omgang(conn, source(FakeSession({LIST_URL: (503, "")}), path), now=Clock(), notifier=FakeNotifier())
     assert res.blocked
     assert saved(path) == set()
+
+
+def test_http_202_twice_blocks_the_omgang_clears_cookies_and_backs_off(conn, tmp_path):
+    add_list(conn, LIST_URL)
+    path = tmp_path / "cookies.json"
+    path.write_text(json.dumps([{"name": "session-id", "value": "1", "domain": ".amazon.se", "path": "/"}]))
+    res = run_omgang(conn, source(FakeSession({LIST_URL: (202, "")}), path), now=Clock(), notifier=FakeNotifier())
+    assert res.blocked and setting_int(conn, "blockerade_i_rad") == 1
+    assert saved(path) == set()
+    texts = [r[0] for r in conn.execute("SELECT text FROM event ORDER BY id")]
+    assert "listsida: HTTP 202 (JS-utmaning)" in texts
