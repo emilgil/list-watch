@@ -56,14 +56,8 @@ Priserna läses direkt från önskelistans sidor. Där syns aktuellt pris för v
    - `ej_i_lager`: tillgänglighetsmarkering för slutsåld ("Inte tillgänglig för närvarande", "Currently unavailable", "Ej i lager" m.fl.).
    - `saknar_pris`: varken pris eller tillgänglighetsmarkering hittades.
 
-   Probe 2026-10-25 visade att listsidan saknar markering för slutsålda produkter: de visar bara "Visa alla köpalternativ". Därför avgör produktsidan vid nästa bakgrundsuppdatering av Prime-cachen om en `saknar_pris`-produkt är `ej_i_lager`. Efter det kan ett `saknar_pris` från listan inte ändra statusen tillbaka, men ett pris på listan kan det (`åter_i_lager`). Mätningen sparas ändå som den lästes.
-3. **Prime-status (hämtning vid behov + cache):** listsidan visar *inte* Prime-status, bara produktsidan gör det. Prime-status cachas per ASIN: status (`prime` / `inte_prime` / `okänd`) och tidpunkt för senaste kontroll. Produktsidan `amazon.se/dp/<ASIN>` hämtas bara när:
-   - a) **Inför larm:** priset når larmvillkoret (målpris eller procent) och Prime-statusen är `okänd` eller äldre än `prime_fresh_for_alert`. Larmet skickas först efter kontrollen och bara om status = `prime`.
-   - b) **Bakgrundsuppdatering:** cachen är äldre än `prime_ttl`. Högst `max_product_pages_per_round` per omgång, äldsta först (aldrig kontrollerade först). Uppdateringen görs direkt efter att varje lista lästs, för just den listans produkter, och loggas i listans runda.
-
-   Lokala ASIN-bevakningar läser produktsidan varje runda och uppdaterar då även Prime-cachen. De räknas inte mot taket och loggar ingen `produktsida_hämtad`-händelse.
-
-   Produktsidans parser läser Prime-indikator, pris, tillgänglighet och avsändare. Utloggad visar amazon.se ingen Prime-märkning, inte ens för varor som Amazon själva skickar (kontrollerat 2026-10-25). Därför gäller: **Prime-märkning eller "Avsändare: Amazon" = `prime`**, annan avsändare = `inte_prime`, ingen av delarna synlig = `okänd`. Regeln är en första approximation och kan skärpas senare. Samma väntetid (5–15 s) gäller för produktsidor som för listsidor. Vid CAPTCHA eller HTTP-fel på en produktsida avbryts produktsidehämtningarna för resten av rundan, statusen lämnas oförändrad och inga larm som kräver kontroll skickas.
+   Probe 2026-10-25 visade att listsidan saknar markering för slutsålda produkter: de visar bara "Visa alla köpalternativ". Sedan 2026-10-27 hämtas inga produktsidor för listprodukter (se Prime nedan), så en sådan produkt står kvar som `saknar_pris` tills listan visar ett pris igen. För lokala ASIN-bevakningar avgör produktsidan; ett `saknar_pris` kan inte ändra ett `ej_i_lager` därifrån tillbaka, men ett pris kan (`åter_i_lager`). Mätningen sparas ändå som den lästes.
+3. **Prime följs inte (beslut 2026-10-27).** Listsidan visar inte Prime-status, och kontrollen via produktsidor gav många extra förfrågningar och blockeringar. Larm och referenspris bryr sig därför inte om Prime; användaren håller själv koll på det. Produktsidor hämtas bara för lokala ASIN-bevakningar, som läser produktsidan varje runda (pris och tillgänglighet). Vid CAPTCHA eller HTTP-fel på en produktsida avbryts produktsidehämtningarna för resten av rundan. Prime-kolumnerna i databasen finns kvar men används inte.
 4. **Tolkning av pris:** alla prisformat normaliseras till öre som heltal. Följande varianter förekommer beroende på språkinställning:
    - svenskt: "1 299,00 kr", "115,66 kr" (mellanslag, NBSP eller smal NBSP som tusentalsavgränsare)
    - svenskt med valutan först: "kr217,90"
@@ -77,9 +71,7 @@ Priserna läses direkt från önskelistans sidor. Där syns aktuellt pris för v
 
 | Inställning | Standard | Betydelse |
 | --- | --- | --- |
-| `prime_ttl` | 7 dagar | Prime-cache äldre än så uppdateras i bakgrunden |
-| `prime_fresh_for_alert` | 24 h | Prime-status måste vara så här färsk för att ett larm ska gå utan ny kontroll |
-| `max_product_pages_per_round` | 10 | Tak för bakgrundsuppdateringar per runda (kontroller inför larm räknas inte mot taket) |
+Inställningarna `prime_ttl`, `prime_fresh_for_alert` och `max_product_pages_per_round` finns kvar i databasen men används inte sedan 2026-10-27.
 
 **Parser i egen modul**, med sparade HTML-exempel som testfall, så att den går snabbt att laga när Amazon ändrar sidlayouten. Insamlingen ligger bakom ett gemensamt källgränssnitt, så att fler källor (t.ex. Hagglezon) kan läggas till senare utan ändringar i larm eller GUI.
 
@@ -115,7 +107,7 @@ En produkt som finns i flera listor lagras en gång och mäts en gång. En körn
 
 Ett larm går när priset korsar en nivå nedåt, och sedan inte igen förrän priset sjunker ytterligare eller först har gått upp över nivån.
 
-**Referenspris:** medianen av alla giltiga mätningar (status `pris`, Prime, inte misstänkta) de senaste 90 dagarna, utan den mätning som bedöms. Finns mindre än 90 dagars historik används det som finns, och GUI:t visar "referens baserad på X dagar". Inget procentlarm förrän minst 7 dagars data finns, för att undvika falsklarm direkt efter import.
+**Referenspris:** medianen av alla giltiga mätningar (status `pris`, inte misstänkta) de senaste 90 dagarna, utan den mätning som bedöms. Finns mindre än 90 dagars historik används det som finns, och GUI:t visar "referens baserad på X dagar". Inget procentlarm förrän minst 7 dagars data finns, för att undvika falsklarm direkt efter import.
 
 **Villkor**, kontrolleras efter varje ny mätning:
 
@@ -128,14 +120,14 @@ Ett larm går när priset korsar en nivå nedåt, och sedan inte igen förrän p
 1. Första gången villkoret uppfylls: notis, och priset sparas som senaste\_larm\_pris.
 2. Fortsätter priset att ligga under nivån: ingen ny notis, utom om det sjunker minst 5 % till under senaste\_larm\_pris.
 3. Går priset över nivån igen nollställs spärren, så nästa korsning ger ny notis.
-4. Misstänkta priser (se Datainsamling) utlöser inget larm. Endast Prime-erbjudanden larmar, och referenspriset räknas bara på Prime-mätningar.
-5. Är Prime-statusen `okänd` eller äldre än `prime_fresh_for_alert` när villkoret uppfylls, hämtas produktsidan först (se Datainsamling). Larmet skickas bara om kontrollen ger `prime`. Misslyckas kontrollen (CAPTCHA, HTTP-fel) skickas inget larm i den rundan, och spärren påverkas inte. Kontrollens resultat skrivs också in i den aktuella mätningens Prime-fält.
+4. Misstänkta priser (se Datainsamling) utlöser inget larm.
+5. Prime påverkar inte larmen (beslut 2026-10-27): ett uppfyllt villkor ger notis direkt, utan kontroll av produktsidan.
 6. Mätningar utan pris (`ej_i_lager`, `saknar_pris`) bedöms inte och nollställer inte spärren. Samma låga pris larmar alltså inte igen bara för att varan varit slut emellan.
 7. Ett misstänkt pris bekräftas om nästa mätning ligger inom ±10 % av det. Den bekräftande mätningen är då inte misstänkt och kan larma.
 8. Spärren (`senaste_larm_pris`) sätts bara när notisen faktiskt skickades. Ett misslyckat utskick loggas som `larm_misslyckades` och prövas igen nästa runda.
 9. `larm_aktivt` = av stänger alla larm för produkten, även lägsta pris någonsin.
 
-**Lägsta pris någonsin:** valfritt per produkt, går när priset understiger allt tidigare uppmätt (giltiga mätningar, oavsett Prime), efter minst 30 dagars historik. Larmet kräver Prime som andra larm men använder inte spärren: varje nytt bottenpris ger en notis. Utlöses flera regler samtidigt blir det en notis.
+**Lägsta pris någonsin:** valfritt per produkt, går när priset understiger allt tidigare uppmätt (giltiga mätningar), efter minst 30 dagars historik. Larmet använder inte spärren: varje nytt bottenpris ger en notis. Utlöses flera regler samtidigt blir det en notis.
 
 **Notisinnehåll:** produktnamn, nytt pris, referenspris, rabatt i procent, vilken regel som utlöste larmet och länk till Amazon. Exempel: *"Sony WH-1000XM5: 2 990 kr (−25 % mot referens 3 990 kr). Under ditt mål på 3 200 kr."*
 
@@ -257,11 +249,16 @@ HTML-sidorna blir testfall för parsern. `report.json` innehåller samma siffror
 **Beslutat 2026-10-25:**
 
 - **Intervall:** 6 h som standard, justerbart i GUI:t, med tillfälligt kampanjintervall och slutdatum.
-- **Larm:** endast Prime-erbjudanden.
+- **Larm:** endast Prime-erbjudanden. *(Ersatt 2026-10-27, se nedan.)*
 - **Åtkomst:** inget lösenord; gränssnittet nås bara via LAN eller Tailscale.
 - **Teknik:** stacken under Arkitektur gäller.
 - **Lokal bevakning via ASIN** ingår i v1 (K10).
 - **Andra källor:** inga andra sajter eller prisbevakningstjänster i v1, men källgränssnittet håller dörren öppen för t.ex. Hagglezon.
+
+**Beslutat 2026-10-27:**
+
+- **Prime följs inte.** Larm går oavsett Prime, och referenspriset räknas på alla giltiga mätningar. Användaren håller själv koll på Prime. Skäl: Prime syns bara på produktsidan, kontrollen kostade många förfrågningar per runda och Amazon började blockera (HTTP 503). En runda läser nu bara listsidorna.
+- **Hövlighet:** utöver 5–15 s mellan förfrågningar är det 1–4 min mellan listor och produktsidor (lokala bevakningar) hämtas 1–3 åt gången med 2–8 min paus. En listsida som nekas (CAPTCHA/503) provas en gång till per runda efter 5–15 min; först om även det misslyckas räknas rundan som blockerad.
 
 **Steg 0, prototyp innan resten byggs:** kommandot listwatch probe (se Installation), som körs från LXC:n och verifierar att
 

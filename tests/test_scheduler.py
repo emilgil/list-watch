@@ -235,7 +235,6 @@ def test_cli_collect_verbose_prints_each_item(db_path, conn, monkeypatch, capsys
     lines = [" ".join(l.split()) for l in out.splitlines()]
     assert "A000000001 1 299 kr Kaffekvarn [ny]" in lines
     assert "A000000002 saknar pris A000000002 [ny]" in lines
-    assert "A000000001 produktsida (bakgrund): okänd" in lines
 
 
 def test_cli_collect_is_quiet_without_verbose(db_path, conn, monkeypatch, capsys):

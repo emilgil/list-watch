@@ -27,9 +27,7 @@
     <div class="facts">
       <span>Pris: <b>{% if p.senaste_status == "pris" %}{{ p.senaste_pris_ore | kr }}{% else %}{{ (p.senaste_status or "ej läst") | replace("_", " ") }}{% endif %}</b></span>
       <span>Referens: <b>{{ lv.reference.median_ore | kr if lv.reference else "–" }}</b>
-        {% if lv.reference %}<span class="muted small">(median, {{ lv.reference.days }} d Prime-historik)</span>{% endif %}</span>
-      <span>Prime: {{ {"prime": "ja", "inte_prime": "nej"}.get(p.prime_status, "okänd") }}
-        <span class="muted small">{% if p.prime_kontrollerad %}kontrollerad {{ p.prime_kontrollerad | lokal_tid }}{% endif %}</span></span>
+        {% if lv.reference %}<span class="muted small">(median, {{ lv.reference.days }} d historik)</span>{% endif %}</span>
     </div>
     <div class="facts muted small" style="margin-top:.3rem">
       <span>{{ p.asin }}</span>

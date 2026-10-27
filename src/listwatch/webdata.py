@@ -52,7 +52,6 @@ class OverviewRow:
     level: Level
     rabatt: float | None  # percent below the reference (negative = above)
     trend: str | None  # 'ned', 'upp', 'lika' vs. TREND_DAYS ago, None = no earlier price
-    prime: str
     lists: list[str] = field(default_factory=list)
 
     @property
@@ -102,7 +101,7 @@ def _row(conn: sqlite3.Connection, p: sqlite3.Row, now: datetime) -> OverviewRow
         asin=p["asin"], titel=p["titel"] or p["asin"], bild_url=p["bild_url"], url=p["url"],
         status=p["senaste_status"], pris_ore=price, level=lv,
         rabatt=(1 - price / ref) * 100 if price is not None and ref else None,
-        trend=_trend(conn, p["asin"], price, now), prime=p["prime_status"],
+        trend=_trend(conn, p["asin"], price, now),
         lists=(p["listor"] or "").split(", "),
     )
 

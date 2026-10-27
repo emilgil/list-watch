@@ -161,12 +161,12 @@ def test_percent_needs_seven_days_of_prime_reference(env):
     assert body.endswith("https://www.amazon.se/dp/B09XS7JWHH")
 
 
-def test_reference_uses_only_prime_measurements(env):
+def test_reference_ignores_prime(env):
+    # Prime is not tracked (2026-10-27): every valid measurement counts
     env.history(10, price=200000, prime="inte_prime")
     env.rule(mal_procent=20)
-    env.round(150000)  # far below the non-Prime median, but there is no Prime reference
-    assert env.notifier.sent == []
-
+    env.round(150000)
+    assert len(env.notifier.sent) == 1
 
 def test_inherits_lowest_percent_among_active_lists(env):
     env.history(10)
@@ -197,51 +197,12 @@ def test_own_rule_overrides_and_can_be_switched_off(env):
     assert env.notifier.sent == []
 
 
-def test_unknown_prime_is_checked_before_alerting(env):
+def test_alerts_need_no_product_page(env):
     env.history(10)
     env.fresh_prime("okänd")
-    env.rule(mal_pris_ore=320000)
-    run_id = env.round(299000)
-    assert env.src.product_calls == 1
-    assert len(env.notifier.sent) == 1
-    assert env.events(run_id, "produktsida_hämtad") == [(ASIN, None, "larmkontroll")]
-    point = env.conn.execute("SELECT prime FROM price_point ORDER BY id DESC").fetchone()[0]
-    assert point == "prime"
-
-
-def test_stale_prime_is_rechecked_and_non_prime_does_not_alert(env):
-    env.history(10)
-    env.rule(mal_pris_ore=320000)
-    env.clock.advance(hours=25)  # cache older than prime_fresh_for_alert (24 h)
-    env.src.prime = False
-    run_id = env.round(299000)
-    assert env.src.product_calls == 1
-    assert env.notifier.sent == [] and env.last_alert() is None
-    assert env.events(run_id, "prime_ändrad") == [(ASIN, "inte_prime", None)]
-    # fresh inte_prime: no new check, still no alert
-    env.round(299000)
-    assert env.src.product_calls == 1 and env.notifier.sent == []
-
-
-def test_fresh_prime_needs_no_product_page(env):
-    env.history(10)
     env.rule(mal_pris_ore=320000)
     env.round(299000)
     assert env.src.product_calls == 0 and len(env.notifier.sent) == 1
-
-
-def test_failed_prime_check_sends_nothing_and_keeps_suppression(env):
-    env.history(10)
-    env.fresh_prime("okänd")
-    env.rule(mal_pris_ore=320000)
-    env.src.product_error = ProductRead(200, captcha=True)
-    run_id = env.round(299000)
-    assert env.notifier.sent == [] and env.last_alert() is None
-    assert env.run(run_id)["captcha"] == "produktsida"
-    env.src.product_error = None
-    env.round(299000)
-    assert len(env.notifier.sent) == 1
-
 
 def test_failed_send_is_logged_and_retried(env):
     env.history(10)

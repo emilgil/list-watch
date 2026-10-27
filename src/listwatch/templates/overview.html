@@ -50,7 +50,6 @@
       <a class="name" href="/produkt/{{ r.asin }}">{{ r.titel }}</a>
       <div class="meta">
         <span>{{ r.lists | join(", ") }}</span>
-        {% if r.prime == "prime" %}<span>Prime</span>{% elif r.prime == "inte_prime" %}<span>Ej Prime</span>{% endif %}
       </div>
     </div>
     <div class="price">

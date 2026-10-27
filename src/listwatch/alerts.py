@@ -1,7 +1,7 @@
 """Alert rules (spec "Larmlogik"): which measurements should notify, and the message text.
 
-Pure decisions over the database; the collector does Prime checks, sending and bookkeeping.
-- Reference = median of valid (pris, not suspicious) Prime measurements in the last 90 days,
+Pure decisions over the database; the collector does the sending and bookkeeping.
+- Reference = median of valid (pris, not suspicious) measurements in the last 90 days,
   excluding the measurement being judged. Percent alerts need ≥ 7 days of that data.
 - Fixed and percent conditions: any active one met = under the level.
 - Suppression: alert on the first crossing, then only on a further ≥ 5 % drop below
@@ -93,7 +93,7 @@ def rule_for(conn: sqlite3.Connection, asin: str) -> Rule:
 def reference(conn: sqlite3.Connection, asin: str, now: datetime, exclude_id: int | None = None) -> Reference | None:
     rows = conn.execute(
         """SELECT pris_ore, tidpunkt FROM price_point
-           WHERE asin = ? AND status = 'pris' AND misstankt = 0 AND prime = 'prime'
+           WHERE asin = ? AND status = 'pris' AND misstankt = 0
              AND tidpunkt >= ? AND tidpunkt <= ? AND id IS NOT ?""",
         (asin, utc_iso(now - timedelta(days=REFERENCE_DAYS)), utc_iso(now), exclude_id),
     ).fetchall()

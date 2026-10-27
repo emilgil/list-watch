@@ -2,8 +2,8 @@
 
 Load is spread out on top of `fetcher.polite` (5–15 s between any two requests):
 - LIST_GAP between lists, after the first.
-- Product pages in groups of PRODUCT_GROUP with PRODUCT_GROUP_GAP before each group, so
-  the Prime refresh is not one burst right after the list.
+- Product pages (single-product watches) in groups of PRODUCT_GROUP with PRODUCT_GROUP_GAP
+  before each group, so they are not one burst.
 - A list read refused with CAPTCHA or HTTP 503 is retried once per omgång after RETRY_WAIT;
   only if that fails too does the omgång count as blocked.
 """

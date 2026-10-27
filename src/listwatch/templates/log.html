@@ -10,7 +10,7 @@
   <thead><tr>
     <th>Start</th><th class="num">Omg.</th><th>Typ</th><th>Lista</th><th class="num">Tid</th>
     <th class="num">Sidor</th><th class="num">Lästa</th><th class="num">Prisändr.</th><th class="num">Nya / borttagna</th>
-    <th class="num">Produktsidor</th><th class="num">Prime ändr.</th><th class="num">Larm</th><th class="num">Fel</th>
+    <th class="num">Produktsidor</th><th class="num">Larm</th><th class="num">Fel</th>
     <th>CAPTCHA</th><th>Resultat</th>
   </tr></thead>
   <tbody>
@@ -26,7 +26,6 @@
       <td class="num">{{ r.prisandrade }}</td>
       <td class="num">{{ r.nya }} / {{ r.borttagna }}</td>
       <td class="num">{{ r.produktsidor }}</td>
-      <td class="num">{{ r.prime_andrade }}</td>
       <td class="num">{{ r.larm_skickade }}{% if r.larm_misslyckade %} <span class="fel">({{ r.larm_misslyckade }} misslyckade)</span>{% endif %}</td>
       <td class="num {{ 'fel' if r.fel }}">{{ r.fel }}</td>
       <td class="{{ 'fel' if r.captcha }}">{{ r.captcha or "nej" }}</td>
