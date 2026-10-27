@@ -200,7 +200,7 @@ def test_cli_collect(db_path, conn, monkeypatch, capsys):
     add_list(conn)
     src = FakeSource()
     src.lists["L1"] = ok(item("A000000001", 100))
-    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None: src)
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None, cookie_file=None: src)
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     assert cli.main(["collect", "--db", str(db_path)]) == 0
     out = capsys.readouterr().out
@@ -212,7 +212,7 @@ def test_cli_collect_blocked_exits_2(db_path, conn, monkeypatch, capsys):
     add_list(conn)
     src = FakeSource()
     src.lists["L1"] = ListRead(http_status=503)
-    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None: src)
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None, cookie_file=None: src)
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     assert cli.main(["collect", "--db", str(db_path)]) == 2
     assert "Blockerad" in capsys.readouterr().out
@@ -227,7 +227,7 @@ def test_cli_collect_verbose_prints_each_item(db_path, conn, monkeypatch, capsys
     add_list(conn)
     src = FakeSource()
     src.lists["L1"] = ok(item("A000000001", 129900, title="Kaffekvarn"), item("A000000002"))
-    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None: src)
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None, cookie_file=None: src)
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     cli.main(["collect", "--db", str(db_path), "--verbose"])
     out = capsys.readouterr().out
@@ -241,7 +241,7 @@ def test_cli_collect_is_quiet_without_verbose(db_path, conn, monkeypatch, capsys
     add_list(conn)
     src = FakeSource()
     src.lists["L1"] = ok(item("A000000001", 100))
-    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None: src)
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None, cookie_file=None: src)
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     cli.main(["collect", "--db", str(db_path)])
     assert "A000000001" not in capsys.readouterr().out
@@ -262,7 +262,7 @@ def test_verbose_notes_price_change_and_fetches(conn):
 def test_amazon_source_reports_each_fetch(monkeypatch):
     from listwatch.fetcher import FetchResult
 
-    monkeypatch.setattr(scheduler, "make_fetcher", lambda: lambda url: FetchResult(404, "", 0.0))
+    monkeypatch.setattr(scheduler, "make_fetcher", lambda **kw: lambda url: FetchResult(404, "", 0.0))
     monkeypatch.setattr(scheduler, "polite", lambda f: f)
     monkeypatch.setattr("listwatch.amazon.PRODUCT_GROUP_GAP", (0, 0))
     urls = []

@@ -12,19 +12,21 @@ Rules (spec K3, "Hövlighet mot Amazon", "Drift"):
   while the service was down runs STARTUP_DELAY after startup.
 - Old runs and events are purged once a day.
 - Only one omgång runs at a time; a scheduled start that finds one running is skipped.
+- Amazon cookies persist in COOKIE_FILE next to the DB; a blocked omgång clears them.
 """
 import logging
 import random
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
 from .amazon import AmazonSource
 from .collector import CollectResult, Progress, collect, send_ops_notice
 from .db import connect, purge_logs, set_setting, setting, setting_int, utc_iso
-from .fetcher import Fetch, FetchResult, make_fetcher, polite
+from .fetcher import COOKIE_FILE, Fetch, FetchResult, make_fetcher, polite
 from .notify import Notifier, notifier_from_settings
 from .source import Source
 
@@ -49,13 +51,21 @@ def _parse_utc(value: str) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def amazon_source(on_fetch: Progress | None = None, on_wait: Progress | None = None) -> Source:
+def cookie_file(db_path: Path | str) -> Path:
+    return Path(db_path).parent / COOKIE_FILE
+
+
+def amazon_source(
+    on_fetch: Progress | None = None, on_wait: Progress | None = None, cookie_file: Path | None = None
+) -> Source:
     """A fresh polite source per omgång, so its first request is not delayed.
 
     `on_fetch` gets each URL right before it is requested (after the politeness delay),
     `on_wait` each longer pause (between lists, product page groups, before a retry).
+    With `cookie_file` the session's cookies are loaded from and kept in that file.
     """
-    fetch: Fetch = make_fetcher()
+    session = make_fetcher(cookie_file=cookie_file)
+    fetch: Fetch = session
     if on_fetch:
         inner = fetch
 
@@ -63,7 +73,7 @@ def amazon_source(on_fetch: Progress | None = None, on_wait: Progress | None = N
             on_fetch(url)
             return inner(url)
 
-    return AmazonSource(polite(fetch), on_wait=on_wait)
+    return AmazonSource(polite(fetch), on_wait=on_wait, session=session if cookie_file else None)
 
 
 def interval(conn: sqlite3.Connection, now: datetime) -> timedelta:
@@ -104,6 +114,9 @@ def run_omgang(
 ) -> CollectResult:
     notifier = notifier or notifier_from_settings(conn)
     res = collect(conn, source, typ=typ, now=now, notifier=notifier, progress=progress)
+    finish = getattr(source, "finish", None)
+    if finish:
+        finish(res.blocked)
     after_omgang(conn, res, now(), notifier)
     return res
 
@@ -128,14 +141,14 @@ class Scheduler:
     def __init__(
         self,
         db_path: Path | str,
-        source_factory: Callable[[], Source] = amazon_source,
+        source_factory: Callable[[], Source] | None = None,
         notifier: Notifier | None = None,
         now: Clock = _utcnow,
     ):
         from apscheduler.schedulers.background import BackgroundScheduler
 
         self.db_path = db_path
-        self.source_factory = source_factory
+        self.source_factory = source_factory or partial(amazon_source, cookie_file=cookie_file(db_path))
         self.notifier = notifier
         self.now = now
         self._lock = threading.Lock()

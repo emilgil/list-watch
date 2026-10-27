@@ -6,11 +6,14 @@ Load is spread out on top of `fetcher.polite` (5–15 s between any two requests
   before each group, so they are not one burst.
 - A list read refused with CAPTCHA or HTTP 503 is retried once per omgång after RETRY_WAIT;
   only if that fails too does the omgång count as blocked.
+- With an empty cookie session the start page is fetched before the first list (warm-up). A refused
+  warm-up counts as a refused list read. After the omgång `finish()` saves the cookies, or clears
+  them if the omgång was blocked (spec-fetcher-tls.md).
 """
 import random
 import re
 import time
-from typing import Callable
+from typing import Callable, Protocol
 
 from .fetcher import Fetch
 from .parser import BASE_URL, is_captcha, parse_product_page, parse_wishlist_page
@@ -55,6 +58,14 @@ def read_wishlist(
     return read
 
 
+class CookieSession(Protocol):
+    has_cookies: bool
+
+    def save_cookies(self) -> None: ...
+
+    def clear_cookies(self) -> None: ...
+
+
 def _blocked(read: ListRead) -> str | None:
     if read.captcha:
         return "CAPTCHA"
@@ -69,8 +80,11 @@ class AmazonSource:
         fetch: Fetch,
         sleep: Callable[[float], None] = time.sleep,
         on_wait: Callable[[str], None] | None = None,
+        session: CookieSession | None = None,
     ):
         self.fetch = fetch
+        self.session = session
+        self._warm = session is None or session.has_cookies
         self.sleep = sleep
         self.on_wait = on_wait or (lambda _msg: None)
         self._lists_read = 0
@@ -87,14 +101,31 @@ class AmazonSource:
             self._wait(LIST_GAP, "före nästa lista")
         self._lists_read += 1
         self._group_left = 0  # product pages after this list start a new group
-        read = read_wishlist(url, self.fetch)
+        read = self._read(url)
         reason = _blocked(read)
         if reason and not self._retried:
             self._retried = True
             self._wait(RETRY_WAIT, f"och försöker igen ({reason})")
-            read = read_wishlist(url, self.fetch)
+            read = self._read(url)
             read.retried_after = reason
         return read
+
+    def _read(self, url: str) -> ListRead:
+        if not self._warm:
+            res = self.fetch(f"{BASE_URL}/")
+            if res.status != 200 or is_captcha(res.html):
+                return ListRead(http_status=res.status, captcha=res.status == 200, seconds=[res.seconds])
+            self._warm = True
+        return read_wishlist(url, self.fetch)
+
+    def finish(self, blocked: bool) -> None:
+        """Keep the cookies for the next omgång, or drop a session Amazon has refused."""
+        if self.session is None:
+            return
+        if blocked:
+            self.session.clear_cookies()
+        else:
+            self.session.save_cookies()
 
     def read_product(self, asin: str) -> ProductRead:
         if self._group_left == 0:

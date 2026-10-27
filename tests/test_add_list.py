@@ -76,7 +76,7 @@ def test_first_omgang_takes_amazons_list_name(db_path, monkeypatch):
     read = ok(item("A000000001", 100))
     read.title = "Hemmet"
     src.lists = {wl["url"]: read for wl in wishlists(db_path)}
-    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None: src)
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None, cookie_file=None: src)
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     cli.main(["collect", "--db", str(db_path)])
     assert [wl["namn"] for wl in wishlists(db_path)] == ["Hemmet", "Egen"]
@@ -85,7 +85,7 @@ def test_first_omgang_takes_amazons_list_name(db_path, monkeypatch):
 def collect_once(db_path, monkeypatch, reads):
     src = FakeSource()
     src.lists = reads
-    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None: src)
+    monkeypatch.setattr(scheduler, "amazon_source", lambda on_fetch=None, on_wait=None, cookie_file=None: src)
     monkeypatch.setattr(scheduler, "notifier_from_settings", lambda conn: FakeNotifier())
     cli.main(["collect", "--db", str(db_path)])
 
