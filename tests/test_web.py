@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from listwatch import cli
 from listwatch.db import backup, connect, migrate, set_setting, utc_iso
 from listwatch.scheduler import Scheduler, run_omgang
+from listwatch.source import ListRead
 from listwatch.web import create_app, local_time
 from test_collector import T0, Clock, FakeSource, add_list, item, ok
 from test_scheduler import FakeNotifier
@@ -48,10 +49,10 @@ def test_health_reports_worst_result_of_last_omgang(db_path, conn):
     add_list(conn, "L2")
     src = FakeSource()
     src.lists["L1"] = ok(item("A000000001", 100))
-    src.lists["L2"] = ok(item("A000000002"))
+    src.lists["L2"] = ListRead(http_status=404)
     run_omgang(conn, src, now=Clock(), notifier=FakeNotifier())
     with TestClient(create_app(db_path)) as client:
-        assert client.get("/health").json()["senaste_omgang"]["resultat"] == "delvis"
+        assert client.get("/health").json()["senaste_omgang"]["resultat"] == "fel"
 
 
 def test_health_with_running_scheduler(db_path, conn):

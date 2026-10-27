@@ -27,7 +27,7 @@ uppdaterats, kontrollerats mot produktsida, larmats om, och vad som gått fel.
 | larm | antal larm skickade / misslyckade |
 | fel | antal fel (HTTP, parsning) |
 | captcha | ja/nej, och i så fall var (listsida / produktsida) |
-| resultat | OK / DELVIS OK / FEL (samma logik som probens avslutskoder) |
+| resultat | OK / DELVIS OK / FEL (som probens avslutskoder, men saknat pris ger inte DELVIS) |
 
 ## 3. Händelser (detaljer per runda)
 Varje händelse: tidpunkt, runda, typ, ASIN (om tillämpligt),
@@ -79,5 +79,8 @@ Oförändrade produkter loggas inte som händelser, bara i räknaren "lästa".
   lagringstid `notislogg_lagringstid_dagar` (standard 365), ställbar i
   GUI:t. Övriga händelser och rundor rensas efter `logg_lagringstid_dagar`.
 - **Resultat:** `fel` vid CAPTCHA, HTTP-fel eller 0 lästa; `delvis` om
-  något saknar pris, fel uppstod eller ett larm misslyckades; annars `ok`.
+  fel uppstod (t.ex. parserfel, fel på en produktsida) eller ett larm
+  misslyckades; annars `ok`. En produkt som saknar pris är inget fel
+  (beslutat 2026-10-27) och ger inte `delvis`; probens avslutskod 1 gäller
+  fortfarande.
 - Tabellerna beskrivs under Datamodell i huvudspecen.

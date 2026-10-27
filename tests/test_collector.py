@@ -90,7 +90,7 @@ def test_first_run_imports_products_and_logs_run(conn):
     r = run_row(conn, run_id)
     assert (r["omgang"], r["typ"], r["wishlist_id"], r["list_namn"]) == (1, "schemalagd", wl, "L")  # took Amazon's title
     assert (r["sidor"], r["lasta"], r["nya"], r["prisandrade"], r["fel"]) == (1, 2, 2, 0, 0)
-    assert r["resultat"] == "delvis"  # one product lacks a price
+    assert r["resultat"] == "ok"  # a missing price is not an error
     assert events(conn, run_id) == [
         ("ny_produkt", "A000000001", None, None),
         ("ny_produkt", "A000000002", None, None),
@@ -284,7 +284,7 @@ def test_amazon_source_against_real_fixtures(conn):
     source = AmazonSource(lambda url: FetchResult(200, pages[url], 0.1), sleep=lambda s: None)
     [run_id] = collect(conn, source, now=Clock())
     r = run_row(conn, run_id)
-    assert (r["lasta"], r["produktsidor"], r["resultat"]) == (3, 0, "delvis")
+    assert (r["lasta"], r["produktsidor"], r["resultat"]) == (3, 0, "ok")
     assert product(conn, "B07V5J9RNV")["senaste_status"] == "pris"
 
 def test_list_captcha_stops_the_omgang_and_marks_it_blocked(conn):

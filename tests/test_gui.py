@@ -260,7 +260,7 @@ def test_sync_now_runs_an_omgang(db_path, conn):
 def test_log_pages(client, conn):
     seed(conn)
     page = text(client.get("/logg").text)
-    assert "Hemmet" in page and "DELVIS" in page
+    assert "Hemmet" in page and "OK" in page
     run_id = conn.execute("SELECT max(id) FROM run").fetchone()[0]
     page = text(client.get(f"/logg/{run_id}").text)
     assert "ny produkt" in page and "Kaffekvarn" in page

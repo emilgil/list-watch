@@ -82,7 +82,6 @@ class _Run:
         self.now = now
         self.count: Counter[str] = Counter()
         self.captcha: str | None = None
-        self.missing_price = 0
         self.read_failed = False  # the list (or every local watch) could not be read
         self.price_lost = 0  # items that had a price last time and have none now
         self.id = conn.execute(
@@ -122,7 +121,7 @@ class _Run:
     def resultat(self) -> str:
         if self.read_failed:
             return "fel"
-        if self.missing_price or self.count["fel"] or self.count["larm_misslyckade"]:
+        if self.count["fel"] or self.count["larm_misslyckade"]:  # a missing price is not an error
             return "delvis"
         return "ok"
 
@@ -242,8 +241,6 @@ def _apply_list(conn: sqlite3.Connection, run: _Run, wl: sqlite3.Row, items: lis
     }
     for item in items:
         run.count["lasta"] += 1
-        if item.status == STATUS_MISSING_PRICE:
-            run.missing_price += 1
         conn.execute(
             """INSERT INTO product (asin, titel, bild_url, url, forsta_sedd) VALUES (?, ?, ?, ?, ?)
                ON CONFLICT (asin) DO UPDATE SET
@@ -456,8 +453,6 @@ def _collect_local(conn: sqlite3.Connection, source: Source, run: _Run, wl: sqli
         if page is None:
             break
         run.count["lasta"] += 1
-        if page.status == STATUS_MISSING_PRICE:
-            run.missing_price += 1
         omgang.seen.add(asin)
         if page.title:
             conn.execute("UPDATE product SET titel = ? WHERE asin = ? AND titel = ''", (page.title, asin))
