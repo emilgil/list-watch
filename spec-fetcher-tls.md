@@ -99,7 +99,7 @@ Status: förslag, 2026-10-27. Förutsättningen är verifierad (se "Testresultat
 
 ## Godkänt när
 
-- `listwatch probe` från LXC:n ger exit 0 mot listan "Köket".
+- `listwatch probe` från LXC:n blockeras inte mot listan "Köket": avslutskod 0 eller 1, inte 2. Avslutskod 1 betyder bara att några produkter saknar pris på Amazon ("Visa alla köpalternativ").
 - Tre schemalagda omgångar i rad är oblockerade och läser alla listor (produktsidor hämtas bara för enstaka ASIN-bevakningar).
 - Journalen visar `HTTP/2` i fetcherns loggrad.
 - Alla tester passerar.

@@ -42,14 +42,11 @@ def test_follows_pagination_and_counts_products(tmp_path):
     assert r.list_title == "Önskelista teknik"
 
 
-def test_counts_price_prime_stock_and_product_pages_needed(tmp_path):
+def test_counts_price_stock_and_missing_price(tmp_path):
     r = probe(GOOD, tmp_path)
     assert r.price_read == 3  # sony, usb, dyr
-    assert r.prime_read == 2  # sony, dyr
     assert r.out_of_stock == 1
     assert r.missing_price == ["B0C1234567"]
-    # Prime is fetched on demand, so only the missing price needs a product page
-    assert r.product_pages_needed == 1
 
 
 def test_partial_result_gives_exit_code_1(tmp_path):
@@ -93,7 +90,7 @@ def test_saves_html_pages_and_report_json(tmp_path):
     assert data["products"] == 5 and data["exit_code"] == 1
     assert data["items"][0] == {
         "asin": "B09XS7JWHH", "title": "Sony WH-1000XM5", "status": "pris",
-        "price_ore": 299000, "prime": True,
+        "price_ore": 299000,
     }
 
 
@@ -102,22 +99,18 @@ def test_report_text_matches_spec_layout(tmp_path):
     assert "Produkter:    5" in text
     assert "Pris läst:        3 / 5" in text
     assert "B0C1234567" in text
-    assert "Prime-status:     2 / 5" in text
-    assert "Produktsidor behövs per runda:  ~1" in text
+    assert "Prime" not in text and "Produktsidor" not in text
     assert "DELVIS OK (avslutskod 1)" in text
 
 
-def test_missing_prime_on_list_page_is_reported_as_expected(tmp_path):
+def test_real_list_page_without_prices_gives_exit_code_1(tmp_path):
     r = probe({URL: (200, html("real_wishlist_items.html"))}, tmp_path)
-    assert (r.products, r.price_read, r.prime_read) == (3, 1, 0)
+    assert (r.products, r.price_read) == (3, 1)
     assert r.missing_price == ["B003YT2HLE", "B08WRMRF44"]
     assert r.exit_code == 1
-    text = render_report(r)
-    assert "Prime-status:     finns ej på listsidan (förväntat)" in text
-    assert "Produktsidor behövs per runda:  ~2" in text
 
 
 def test_priced_items_without_prime_give_exit_code_0(tmp_path):
     no_badge = html("synthetic_wishlist_p2.html").replace('<i class="a-icon a-icon-prime"></i>', "")
     r = probe({URL: (200, no_badge)}, tmp_path)
-    assert (r.prime_read, r.exit_code) == (0, 0)
+    assert r.exit_code == 0

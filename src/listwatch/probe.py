@@ -23,10 +23,8 @@ class ProbeReport:
     captcha: bool = False
     products: int = 0
     price_read: int = 0
-    prime_read: int = 0
     out_of_stock: int = 0
     missing_price: list[str] = field(default_factory=list)
-    product_pages_needed: int = 0
     exit_code: int = 2
     saved_dir: str | None = None
     started: str = ""
@@ -59,20 +57,16 @@ def run_probe(
     report.avg_seconds = sum(read.seconds) / len(read.seconds) if read.seconds else 0.0
     report.products = len(items)
     report.price_read = sum(i.price_ore is not None for i in items)
-    report.prime_read = sum(i.prime is True for i in items)
     report.out_of_stock = sum(i.status == STATUS_OUT_OF_STOCK for i in items)
     report.missing_price = [i.asin for i in items if i.status == STATUS_MISSING_PRICE]
-    # Prime is never on the list page; it is fetched on demand and cached, so only
-    # missing prices need a product page.
-    report.product_pages_needed = len(report.missing_price)
     report.items = [
-        {"asin": i.asin, "title": i.title, "status": i.status, "price_ore": i.price_ore, "prime": i.prime}
+        {"asin": i.asin, "title": i.title, "status": i.status, "price_ore": i.price_ore}
         for i in items
     ]
     if read.error:
         report.exit_code = 2
     else:
-        report.exit_code = 1 if report.product_pages_needed else 0
+        report.exit_code = 1 if report.missing_price else 0
     (saved / "report.json").write_text(
         json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -84,11 +78,6 @@ def _pct(n: int, total: int) -> str:
 
 
 def render_report(r: ProbeReport) -> str:
-    prime = (
-        f"{r.prime_read} / {r.products}  ({_pct(r.prime_read, r.products)})"
-        if r.prime_read
-        else "finns ej på listsidan (förväntat)"
-    )
     http = f"{r.http_status} {'OK' if r.http_status == 200 else ''}".strip() if r.http_status else "ingen respons"
     lines = [
         f"List Watch – probe  {r.started}",
@@ -98,12 +87,9 @@ def render_report(r: ProbeReport) -> str:
         "",
         f"Produkter:    {r.products}",
         f"  Pris läst:        {r.price_read} / {r.products}  ({_pct(r.price_read, r.products)})",
-        f"  Prime-status:     {prime}",
         f"  Ej i lager:        {r.out_of_stock}",
         f"  Saknar pris:       {len(r.missing_price)}"
         + (f"  → {', '.join(r.missing_price)}" if r.missing_price else ""),
-        "",
-        f"Produktsidor behövs per runda:  ~{r.product_pages_needed}  (saknat pris; Prime hämtas vid behov och cachas)",
         "",
         f"Sparat:  {r.saved_dir}/",
         "",
