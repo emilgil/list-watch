@@ -83,7 +83,7 @@
 <main>
 <div class="status">
   <span>Nästa omgång: {{ status.next_run }}</span>
-  {% if status.last %}<span>Senaste: {{ status.last.slut | lokal_tid }}
+  {% if status.last %}<span>Senaste{% if status.last.lista %} för <a href="/logg/{{ status.last.run_id }}">{{ status.last.lista }}</a>{% endif %}: {{ status.last.slut | lokal_tid }}
     <span class="{{ status.last.resultat }}">{{ (status.last.resultat or "pågår") | upper }}</span></span>{% endif %}
   {% if status.blocked %}<span class="fel">Blockerad {{ status.blocked }} omgång{{ "ar" if status.blocked > 1 }} i rad</span>{% endif %}
   <span id="synka">

@@ -93,6 +93,20 @@ def test_overview_sorts_by_discount_and_filters_by_list(client, conn):
     assert "B000000003" in client.get("/").text
 
 
+def test_status_bar_shows_the_selected_lists_latest_run(client, conn):
+    hemmet = seed(conn)
+    other_url = "https://www.amazon.se/hz/wishlist/ls/OTHER1"
+    koket = lists.add_amazon_list(conn, other_url, "Köket", None)
+    src = FakeSource()
+    src.lists[URL] = ok(item(A, 70000))
+    src.lists[other_url] = ok(item("B000000009", 100))
+    run_omgang(conn, src, now=Clock(), notifier=FakeNotifier())
+    runs = dict(conn.execute("SELECT wishlist_id, max(id) FROM run GROUP BY wishlist_id").fetchall())
+    assert "Senaste för" not in text(client.get("/").text)
+    for wl, name in ((hemmet, "Hemmet"), (koket, "Köket")):
+        assert f'Senaste för <a href="/logg/{runs[wl]}">{name}</a>' in client.get(f"/?lista={wl}").text
+
+
 def test_overview_rows_compute_level(conn):
     seed(conn)
     rows = {r.asin: r for r in webdata.overview(conn, T0 + timedelta(days=10))}

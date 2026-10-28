@@ -90,6 +90,18 @@ def _last_omgang(conn: sqlite3.Connection) -> dict | None:
     return {"omgang": row["omgang"], "slut": row["slut"], "resultat": worst}
 
 
+def _last_list_run(conn: sqlite3.Connection, wishlist_id: int) -> dict | None:
+    """The latest run of one list, for the status bar when the overview shows that list."""
+    row = conn.execute(
+        """SELECT id, list_namn, start, slut, resultat FROM run
+           WHERE typ != 'probe' AND wishlist_id = ? ORDER BY id DESC LIMIT 1""",
+        (wishlist_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"run_id": row["id"], "lista": row["list_namn"], "slut": row["slut"] or row["start"], "resultat": row["resultat"]}
+
+
 def _redirect(path: str, **message: str) -> RedirectResponse:
     query = urlencode({k: v for k, v in message.items() if v})
     return RedirectResponse(f"{path}?{query}" if query else path, status_code=303)
@@ -147,12 +159,14 @@ def create_app(
         at = scheduler.next_run() if scheduler else None
         return local_time(at) if at else local_time(setting(conn, "nasta_korning") or None)
 
-    def page(request: Request, name: str, conn: sqlite3.Connection, **context) -> HTMLResponse:
+    def page(
+        request: Request, name: str, conn: sqlite3.Connection, list_id: int | None = None, **context
+    ) -> HTMLResponse:
         context.setdefault("ok", request.query_params.get("ok"))
         context.setdefault("fel", request.query_params.get("fel"))
         context["status"] = {
             "next_run": next_run(conn),
-            "last": _last_omgang(conn),
+            "last": _last_list_run(conn, list_id) if list_id else _last_omgang(conn),
             "blocked": int(setting(conn, "blockerade_i_rad")),
             "syncing": _syncing(),
         }
@@ -192,7 +206,7 @@ def create_app(
         try:
             list_id = int(lista) if lista.isdigit() else None
             return page(
-                request, "overview.html", conn,
+                request, "overview.html", conn, list_id=list_id,
                 rows=webdata.overview(conn, now(), lista=list_id, sort=sort),
                 lists=webdata.lists_overview(conn), lista=list_id, sort=sort,
             )
