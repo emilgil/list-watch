@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Händelser{% endblock %}
+{% block body_class %}wide{% endblock %}
 {% block content %}
 {% if run %}
 <h1>Runda {{ run.id }}: {{ run.list_namn or "–" }}</h1>

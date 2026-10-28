@@ -29,6 +29,9 @@
   header nav a { color: var(--muted); padding: .2rem 0; }
   header nav a.active { color: var(--fg); font-weight: 600; }
   main { max-width: 64rem; margin: 0 auto; padding: 1rem 1rem 3rem; }
+  /* wide pages (the log tables): room for every column without a scrollbar on a normal screen */
+  body.wide header .bar, body.wide main { max-width: 92rem; }
+  body.wide th, body.wide td { padding: .45rem .55rem; }
   h1 { font-size: 1.35rem; margin: .25rem 0 1rem; }
   h2 { font-size: 1.05rem; margin: 1.75rem 0 .6rem; }
   .muted { color: var(--muted); }
@@ -67,7 +70,7 @@
 </style>
 {% block head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 <header>
   <div class="bar">
     <a class="brand" href="/">listwatch</a>
