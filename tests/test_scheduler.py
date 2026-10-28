@@ -176,6 +176,49 @@ def test_scheduled_job_plans_the_next_even_if_the_omgang_crashes(db_path, conn):
         s.shutdown()
 
 
+def test_manual_omgang_plans_the_next_start_and_lifts_backoff(db_path, conn):
+    add_list(conn)
+    src = FakeSource()
+    src.lists["L1"] = ok(item("A000000001", 100))
+    set_setting(conn, "fordrojning_minuter", 0)
+    set_setting(conn, "blockerade_i_rad", 3)
+    set_setting(conn, "nasta_korning", utc_iso(T0 + timedelta(hours=24)))
+    s = Scheduler(db_path, source_factory=lambda: src, notifier=FakeNotifier(), now=lambda: T0)
+    s.start(paused=True)
+    try:
+        s.run_now()
+        assert setting_int(conn, "blockerade_i_rad") == 0
+        assert s.next_run() == T0 + timedelta(hours=6)
+        assert setting(conn, "nasta_korning") == utc_iso(T0 + timedelta(hours=6))
+    finally:
+        s.shutdown()
+
+
+def test_skipped_scheduled_start_leaves_planning_to_the_running_omgang(db_path, conn):
+    add_list(conn)
+    entered, release = threading.Event(), threading.Event()
+
+    class Slow(FakeSource):
+        def read_list(self, url):
+            entered.set()
+            release.wait(5)
+            return ok(item("A000000001", 100))
+
+    set_setting(conn, "fordrojning_minuter", 0)
+    s = Scheduler(db_path, source_factory=Slow, notifier=FakeNotifier(), now=lambda: T0)
+    s.start(paused=True)
+    try:
+        t = threading.Thread(target=s.run_now)
+        t.start()
+        entered.wait(5)
+        s._scheduled()  # skipped
+        release.set()
+        t.join(5)
+        assert s.next_run() == T0 + timedelta(hours=6)
+    finally:
+        s.shutdown()
+
+
 def test_only_one_omgang_at_a_time(db_path, conn):
     add_list(conn)
     entered, release = threading.Event(), threading.Event()

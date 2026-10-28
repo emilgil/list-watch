@@ -12,6 +12,8 @@ Rules (spec K3, "Hövlighet mot Amazon", "Drift"):
   while the service was down runs STARTUP_DELAY after startup.
 - Old runs and events are purged once a day.
 - Only one omgång runs at a time; a scheduled start that finds one running is skipped.
+- Every omgång, manual ("Synka nu") or scheduled, plans the next start from when it ended,
+  so a manual one also lifts or sets backoff (and pushes the scheduled start later).
 - Amazon cookies persist in COOKIE_FILE next to the DB; a blocked omgång clears them.
 """
 import logging
@@ -190,7 +192,8 @@ class Scheduler:
         return at
 
     def run_now(self, typ: str = "manuell") -> CollectResult | None:
-        """Run an omgång in the calling thread. None if one is already running."""
+        """Run an omgång in the calling thread, then plan the next start (also after a crash).
+        None if one is already running; that one plans the next start when it ends."""
         if not self._lock.acquire(blocking=False):
             return None
         try:
@@ -203,6 +206,8 @@ class Scheduler:
                 conn.close()
         finally:
             self._lock.release()
+            if self.running:
+                self.reschedule()
 
     def _plan(self, at: datetime) -> None:
         # No misfire grace limit: a start missed while the process was suspended still runs
@@ -217,8 +222,6 @@ class Scheduler:
                 log.info("omgång pågår redan, schemalagd start hoppas över")
         except Exception:
             log.exception("omgång misslyckades")
-        finally:
-            self.reschedule()
 
     def _purge(self) -> None:
         conn = connect(self.db_path)
